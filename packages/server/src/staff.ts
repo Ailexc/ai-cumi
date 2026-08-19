@@ -109,6 +109,47 @@ function normalizeAgentId(raw: string): string {
 }
 
 /**
+ * 生成人设文本（纯函数，不落盘不创建）——供"添加员工预览"使用
+ * 与 addStaff 生成逻辑一致：角色模板占位符替换 + 岗位职责追加章节
+ * @throws 名字/角色无效时抛错
+ */
+export function previewPersona(input: { name: string; role: string; duty?: string }): {
+  persona: string;
+  filename: string;
+  roleLabel: string;
+  roleTitle: string;
+} {
+  const name = input.name.trim();
+  const role = input.role;
+  const duty = input.duty?.trim() || '';
+
+  if (!name) throw new Error('员工名字不能为空');
+  const roles = listRoles();
+  const roleInfo = roles.find((r) => r.id === role);
+  if (!roleInfo) throw new Error(`未知角色: ${role}（可选: ${roles.map((r) => r.id).join(', ')}）`);
+  if (!existsSync(join(ROLES_DIR, `${role}.md`))) throw new Error(`角色模板不存在: ${role}`);
+
+  const template = readFileSync(join(ROLES_DIR, `${role}.md`), 'utf8');
+  const persona = template
+    .replaceAll('{NAME}', name)
+    .replaceAll('{ROLE_TITLE}', roleInfo.title || roleInfo.label);
+  const personaWithDuty = duty
+    ? `${persona}
+
+## 岗位职责（主管指定）
+${duty}
+`
+    : persona;
+
+  return {
+    persona: personaWithDuty,
+    filename: 'AGENTS.md',
+    roleLabel: roleInfo.label,
+    roleTitle: roleInfo.title || roleInfo.label,
+  };
+}
+
+/**
  * 添加员工（招同事）：
  * 生成人设 → openclaw agents add → 固定房间 → 重启 gateway
  */

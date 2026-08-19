@@ -8,7 +8,7 @@ import { cfg } from './config.js';
 import { createWsServer } from './ws-server.js';
 import { initGatewayWs, isGatewayWsConnected } from './gateway-ws.js';
 import * as rooms from './rooms.js';
-import { listRoles, addStaff } from './staff.js';
+import { listRoles, addStaff, previewPersona } from './staff.js';
 import { listPersonaTemplates } from './persona-templates.js';
 import {
   listMemberSummaries,
@@ -90,6 +90,17 @@ app.get('/api/roles', (_req, res) => {
 /** 人设模板库（供精修向导"从模板快速开始"） */
 app.get('/api/persona-templates', (_req, res) => {
   res.json({ ok: true, templates: listPersonaTemplates() });
+});
+
+/** 添加员工预览（不落盘不创建，只生成人设文本供确认）——阶段一收尾：预览+迭代闭环 */
+app.post('/api/staff/preview', (req, res) => {
+  const { name, role, duty } = req.body || {};
+  try {
+    const preview = previewPersona({ name, role, duty });
+    res.json({ ok: true, ...preview });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, error: err.message || '生成预览失败' });
+  }
 });
 
 /** 添加员工（招同事）：创建 agent + 固定房间 */
