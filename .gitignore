@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+packages/server/data/
+
+# 本地 OpenClaw 测试实例（含 API key / 引擎源码 / agent 数据，可从云端重同步）
+local/openclaw/
+local/openclaw-cn/
+local/workspace/
+
+# 运行时数据（可从 openclaw.json 重建）
+local/server-data/
+local/audit-log.json

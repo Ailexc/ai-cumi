@@ -1,0 +1,16 @@
+{
+  "name": "aicumi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AiCumi — 个人云端 24/7 私人 AI 助理团队",
+  "scripts": {
+    "dev": "pnpm --filter @aicumi/server dev & pnpm --filter @aicumi/web dev",
+    "dev:server": "pnpm --filter @aicumi/server dev",
+    "dev:web": "pnpm --filter @aicumi/web dev",
+    "build": "pnpm --filter @aicumi/server build && pnpm --filter @aicumi/web build",
+    "start": "pnpm --filter @aicumi/server start"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

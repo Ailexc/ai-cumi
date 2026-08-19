@@ -1,0 +1,92 @@
+/* AiCumi Design Tokens — warm, professional, restrained */
+
+:root {
+  /* Primary palette: low-saturation indigo */
+  --aicumi-primary: #5e6ad2;
+  --aicumi-primary-50: #f4f5fd;
+  --aicumi-primary-100: #e7e9fa;
+  --aicumi-primary-200: #d2d6f5;
+  --aicumi-primary-300: #b0b8ed;
+  --aicumi-primary-400: #8a94de;
+  --aicumi-primary-500: #5e6ad2;
+  --aicumi-primary-600: #4c57b8;
+  --aicumi-primary-700: #3f479c;
+  --aicumi-primary-foreground: #ffffff;
+
+  /* Neutral surfaces: warm whites */
+  --aicumi-background: #f7f7f8;
+  --aicumi-surface: #ffffff;
+  --aicumi-surface-2: #f3f3f5;
+  --aicumi-surface-3: #eaeaed;
+
+  /* Text: near-black to soft gray */
+  --aicumi-foreground: #1a1b1e;
+  --aicumi-foreground-secondary: #5f6368;
+  --aicumi-foreground-tertiary: #9aa0a6;
+  --aicumi-foreground-quaternary: #c4c7cc;
+
+  /* Semantic aliases required by head contract */
+  --aicumi-card: #ffffff;
+  --aicumi-card-foreground: #1a1b1e;
+  --aicumi-popover: #ffffff;
+  --aicumi-popover-foreground: #1a1b1e;
+  --aicumi-muted: #f3f3f5;
+  --aicumi-muted-foreground: #5f6368;
+  --aicumi-border: rgba(26, 27, 30, 0.08);
+  --aicumi-border-strong: rgba(26, 27, 30, 0.14);
+  --aicumi-input: rgba(26, 27, 30, 0.08);
+  --aicumi-ring: #5e6ad2;
+
+  /* Status colors */
+  --aicumi-success: #22a45c;
+  --aicumi-warning: #d4891c;
+  --aicumi-error: #de3b46;
+  --aicumi-info: #3b82f6;
+
+  /* Radius */
+  --aicumi-radius-xs: 2px;
+  --aicumi-radius-sm: 4px;
+  --aicumi-radius-md: 8px;
+  --aicumi-radius-lg: 12px;
+  --aicumi-radius-xl: 16px;
+  --aicumi-radius-pill: 999px;
+
+  /* Shadows: ≤10% black, short distance */
+  --aicumi-shadow-1: 0 1px 2px rgba(26, 27, 30, 0.05), 0 1px 1px rgba(26, 27, 30, 0.03);
+  --aicumi-shadow-2: 0 4px 12px rgba(26, 27, 30, 0.08);
+  --aicumi-shadow-3: 0 12px 32px rgba(26, 27, 30, 0.12);
+
+  /* Typography */
+  --aicumi-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --aicumi-font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing 4px grid */
+  --aicumi-space-1: 4px;
+  --aicumi-space-2: 8px;
+  --aicumi-space-3: 12px;
+  --aicumi-space-4: 16px;
+  --aicumi-space-5: 20px;
+  --aicumi-space-6: 24px;
+  --aicumi-space-7: 32px;
+  --aicumi-space-8: 40px;
+  --aicumi-space-9: 48px;
+  --aicumi-space-10: 64px;
+
+  /* Layout */
+  --aicumi-sidebar-width: 220px;
+  --aicumi-conversation-width: 300px;
+  --aicumi-chat-max-width: 780px;
+  --aicumi-header-height: 60px;
+  --aicumi-composer-height: 80px;
+}
+
+/* Base typography */
+.aicumi {
+  font-family: var(--aicumi-font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--aicumi-foreground);
+  background-color: var(--aicumi-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

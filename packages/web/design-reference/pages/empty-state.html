@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天主界面 · 空状态</title>
+    <style id="theme-vars">
+/* AiCumi Design Tokens — warm, professional, restrained */
+
+:root {
+  /* Primary palette: low-saturation indigo */
+  --aicumi-primary: #5e6ad2;
+  --aicumi-primary-50: #f4f5fd;
+  --aicumi-primary-100: #e7e9fa;
+  --aicumi-primary-200: #d2d6f5;
+  --aicumi-primary-300: #b0b8ed;
+  --aicumi-primary-400: #8a94de;
+  --aicumi-primary-500: #5e6ad2;
+  --aicumi-primary-600: #4c57b8;
+  --aicumi-primary-700: #3f479c;
+  --aicumi-primary-foreground: #ffffff;
+
+  /* Neutral surfaces: warm whites */
+  --aicumi-background: #f7f7f8;
+  --aicumi-surface: #ffffff;
+  --aicumi-surface-2: #f3f3f5;
+  --aicumi-surface-3: #eaeaed;
+
+  /* Text: near-black to soft gray */
+  --aicumi-foreground: #1a1b1e;
+  --aicumi-foreground-secondary: #5f6368;
+  --aicumi-foreground-tertiary: #9aa0a6;
+  --aicumi-foreground-quaternary: #c4c7cc;
+
+  /* Semantic aliases required by head contract */
+  --aicumi-card: #ffffff;
+  --aicumi-card-foreground: #1a1b1e;
+  --aicumi-popover: #ffffff;
+  --aicumi-popover-foreground: #1a1b1e;
+  --aicumi-muted: #f3f3f5;
+  --aicumi-muted-foreground: #5f6368;
+  --aicumi-border: rgba(26, 27, 30, 0.08);
+  --aicumi-border-strong: rgba(26, 27, 30, 0.14);
+  --aicumi-input: rgba(26, 27, 30, 0.08);
+  --aicumi-ring: #5e6ad2;
+
+  /* Status colors */
+  --aicumi-success: #22a45c;
+  --aicumi-warning: #d4891c;
+  --aicumi-error: #de3b46;
+  --aicumi-info: #3b82f6;
+
+  /* Radius */
+  --aicumi-radius-xs: 2px;
+  --aicumi-radius-sm: 4px;
+  --aicumi-radius-md: 8px;
+  --aicumi-radius-lg: 12px;
+  --aicumi-radius-xl: 16px;
+  --aicumi-radius-pill: 999px;
+
+  /* Shadows: ≤10% black, short distance */
+  --aicumi-shadow-1: 0 1px 2px rgba(26, 27, 30, 0.05), 0 1px 1px rgba(26, 27, 30, 0.03);
+  --aicumi-shadow-2: 0 4px 12px rgba(26, 27, 30, 0.08);
+  --aicumi-shadow-3: 0 12px 32px rgba(26, 27, 30, 0.12);
+
+  /* Typography */
+  --aicumi-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --aicumi-font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing 4px grid */
+  --aicumi-space-1: 4px;
+  --aicumi-space-2: 8px;
+  --aicumi-space-3: 12px;
+  --aicumi-space-4: 16px;
+  --aicumi-space-5: 20px;
+  --aicumi-space-6: 24px;
+  --aicumi-space-7: 32px;
+  --aicumi-space-8: 40px;
+  --aicumi-space-9: 48px;
+  --aicumi-space-10: 64px;
+
+  /* Layout */
+  --aicumi-sidebar-width: 220px;
+  --aicumi-conversation-width: 300px;
+  --aicumi-chat-max-width: 780px;
+  --aicumi-header-height: 60px;
+  --aicumi-composer-height: 80px;
+}
+
+/* Base typography */
+.aicumi {
+  font-family: var(--aicumi-font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--aicumi-foreground);
+  background-color: var(--aicumi-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--aicumi-background);
+    --color-foreground: var(--aicumi-foreground);
+    --color-card: var(--aicumi-card);
+    --color-card-foreground: var(--aicumi-card-foreground);
+    --color-popover: var(--aicumi-popover);
+    --color-popover-foreground: var(--aicumi-popover-foreground);
+    --color-primary: var(--aicumi-primary);
+    --color-primary-foreground: var(--aicumi-primary-foreground);
+    --color-muted: var(--aicumi-muted);
+    --color-muted-foreground: var(--aicumi-muted-foreground);
+    --color-border: var(--aicumi-border);
+    --color-input: var(--aicumi-input);
+    --color-ring: var(--aicumi-ring);
+    --radius-sm: var(--aicumi-radius-sm);
+    --radius-md: var(--aicumi-radius-md);
+    --radius-lg: var(--aicumi-radius-lg);
+    --radius-xl: var(--aicumi-radius-xl);
+  }
+  @layer base {
+    body { background: var(--aicumi-background); color: var(--aicumi-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--aicumi-background); }
+      .text-background { color: var(--aicumi-background); }
+      .border-background { border-color: var(--aicumi-background); }
+      .ring-background { --tw-ring-color: var(--aicumi-background); }
+      .bg-foreground { background-color: var(--aicumi-foreground); }
+      .text-foreground { color: var(--aicumi-foreground); }
+      .border-foreground { border-color: var(--aicumi-foreground); }
+      .ring-foreground { --tw-ring-color: var(--aicumi-foreground); }
+      .bg-card { background-color: var(--aicumi-card); }
+      .text-card { color: var(--aicumi-card); }
+      .border-card { border-color: var(--aicumi-card); }
+      .ring-card { --tw-ring-color: var(--aicumi-card); }
+      .bg-card-foreground { background-color: var(--aicumi-card-foreground); }
+      .text-card-foreground { color: var(--aicumi-card-foreground); }
+      .border-card-foreground { border-color: var(--aicumi-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--aicumi-card-foreground); }
+      .bg-popover { background-color: var(--aicumi-popover); }
+      .text-popover { color: var(--aicumi-popover); }
+      .border-popover { border-color: var(--aicumi-popover); }
+      .ring-popover { --tw-ring-color: var(--aicumi-popover); }
+      .bg-popover-foreground { background-color: var(--aicumi-popover-foreground); }
+      .text-popover-foreground { color: var(--aicumi-popover-foreground); }
+      .border-popover-foreground { border-color: var(--aicumi-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--aicumi-popover-foreground); }
+      .bg-primary { background-color: var(--aicumi-primary); }
+      .text-primary { color: var(--aicumi-primary); }
+      .border-primary { border-color: var(--aicumi-primary); }
+      .ring-primary { --tw-ring-color: var(--aicumi-primary); }
+      .bg-primary-foreground { background-color: var(--aicumi-primary-foreground); }
+      .text-primary-foreground { color: var(--aicumi-primary-foreground); }
+      .border-primary-foreground { border-color: var(--aicumi-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--aicumi-primary-foreground); }
+      .bg-muted { background-color: var(--aicumi-muted); }
+      .text-muted { color: var(--aicumi-muted); }
+      .border-muted { border-color: var(--aicumi-muted); }
+      .ring-muted { --tw-ring-color: var(--aicumi-muted); }
+      .bg-muted-foreground { background-color: var(--aicumi-muted-foreground); }
+      .text-muted-foreground { color: var(--aicumi-muted-foreground); }
+      .border-muted-foreground { border-color: var(--aicumi-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--aicumi-muted-foreground); }
+      .bg-border { background-color: var(--aicumi-border); }
+      .text-border { color: var(--aicumi-border); }
+      .border-border { border-color: var(--aicumi-border); }
+      .ring-border { --tw-ring-color: var(--aicumi-border); }
+      .bg-input { background-color: var(--aicumi-input); }
+      .text-input { color: var(--aicumi-input); }
+      .border-input { border-color: var(--aicumi-input); }
+      .ring-input { --tw-ring-color: var(--aicumi-input); }
+      .bg-ring { background-color: var(--aicumi-ring); }
+      .text-ring { color: var(--aicumi-ring); }
+      .border-ring { border-color: var(--aicumi-ring); }
+      .ring-ring { --tw-ring-color: var(--aicumi-ring); }
+    </style>
+    <style>
+      /* Critical app-shell layout — static, Tailwind-independent */
+      html, body, .aicumi-shell { height: 100%; }
+      body { margin: 0; overflow: hidden; }
+      .aicumi-shell {
+        display: flex;
+        width: 100vw;
+        height: 100vh;
+        background: var(--aicumi-background);
+        color: var(--aicumi-foreground);
+        font-family: var(--aicumi-font-sans);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+      .aicumi-pane {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+      }
+      .aicumi-roster {
+        width: 280px;
+        flex: 0 0 280px;
+        background: var(--aicumi-surface);
+        border-right: 1px solid var(--aicumi-border);
+      }
+      .aicumi-chat-canvas {
+        flex: 1 1 auto;
+        min-width: 0;
+        background: var(--aicumi-background);
+      }
+      .aicumi-scroll { overflow-y: auto; }
+      .aicumi-scroll::-webkit-scrollbar { width: 6px; }
+      .aicumi-scroll::-webkit-scrollbar-track { background: transparent; }
+      .aicumi-scroll::-webkit-scrollbar-thumb { background: var(--aicumi-border-strong); border-radius: 999px; }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="font-sans antialiased">
+    <main class="aicumi-shell" data-viewport-mode="app-shell">
+      <!-- Left: conversation roster -->
+      <aside class="aicumi-pane aicumi-roster" id="conversation-list" data-region="conversation-list">
+        <div class="shrink-0 flex h-[60px] items-center gap-3 border-b border-border px-4">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold text-sm">A</div>
+          <span class="font-semibold text-foreground">AiCumi</span>
+        </div>
+
+        <div class="shrink-0 p-3 border-b border-border">
+          <div class="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
+            <i data-lucide="search" class="h-4 w-4 text-muted-foreground"></i>
+            <span class="text-sm text-muted-foreground">搜索会话</span>
+          </div>
+        </div>
+
+        <div class="aicumi-scroll flex-1 px-3 py-3" data-scroll-region="primary">
+          <div class="space-y-0.5">
+            <!-- 小研 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 bg-primary-50 hover:bg-primary-100 transition-colors">
+              <div class="relative shrink-0">
+                <img src="../assets/avatar-xiaoyan.jpg" alt="小研" class="mt-0.5 h-9 w-9 rounded-full object-cover bg-muted">
+                <span class="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface" style="background: var(--aicumi-success);"></span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">小研</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">09:41</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <p class="text-xs text-muted-foreground truncate flex-1">已整理头部 20 家企业的核心数据…</p>
+                  <span class="shrink-0 h-2 w-2 rounded-full bg-primary"></span>
+                </div>
+              </div>
+            </a>
+
+            <!-- 产品冲刺小组 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors">
+              <div class="relative shrink-0">
+                <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-primary">
+                  <i data-lucide="users" class="h-4 w-4"></i>
+                </div>
+                <span class="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">3</span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">产品冲刺小组</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">昨天</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <p class="text-xs text-muted-foreground truncate flex-1">小文：本周内容排期已发，请确认发布节奏。</p>
+                  <span class="shrink-0 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">3</span>
+                </div>
+              </div>
+            </a>
+
+            <!-- 可灵 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors">
+              <div class="relative shrink-0">
+                <img src="../assets/avatar-keling.jpg" alt="可灵" class="mt-0.5 h-9 w-9 rounded-full object-cover bg-muted">
+                <span class="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface" style="background: var(--aicumi-success);"></span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">可灵</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">08:20</span>
+                </div>
+                <p class="text-xs text-muted-foreground truncate">下午 2 点与小研的调研同步会已预约。</p>
+              </div>
+            </a>
+
+            <!-- 小文 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors">
+              <div class="relative shrink-0">
+                <img src="../assets/avatar-xiaowen.jpg" alt="小文" class="mt-0.5 h-9 w-9 rounded-full object-cover bg-muted">
+                <span class="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface" style="background: var(--aicumi-warning);"></span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">小文</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">昨天</span>
+                </div>
+                <p class="text-xs text-muted-foreground truncate">列出了 5 个备选选题，附标题和角度分析。</p>
+              </div>
+            </a>
+
+            <!-- 内容归档 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors">
+              <div class="relative shrink-0">
+                <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  <i data-lucide="folder-open" class="h-4 w-4"></i>
+                </div>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">内容归档</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">8/10</span>
+                </div>
+                <p class="text-xs text-muted-foreground truncate">小文：归档文件夹已整理完毕。</p>
+              </div>
+            </a>
+
+            <!-- 小码 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors">
+              <div class="relative shrink-0">
+                <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-primary font-medium text-sm">码</div>
+                <span class="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface" style="background: var(--aicumi-success);"></span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">小码</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">周一</span>
+                </div>
+                <p class="text-xs text-muted-foreground truncate">字段命名已调整，Swagger 文档同步更新。</p>
+              </div>
+            </a>
+
+            <!-- 小财 -->
+            <a href="#" class="group flex items-start gap-3 rounded-lg p-2 hover:bg-muted transition-colors">
+              <div class="relative shrink-0">
+                <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground font-medium text-sm">财</div>
+                <span class="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface" style="background: var(--aicumi-foreground-tertiary);"></span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium truncate">小财</span>
+                  <span class="shrink-0 text-xs text-muted-foreground">8/12</span>
+                </div>
+                <p class="text-xs text-muted-foreground truncate">报销表已生成，共 7 笔待你确认。</p>
+              </div>
+            </a>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right: Chat canvas -->
+      <section class="aicumi-pane aicumi-chat-canvas" data-region="chat-canvas">
+        <div class="aicumi-scroll flex flex-1 flex-col items-center justify-center overflow-y-auto px-6" id="empty-conversation" data-region="empty-conversation" data-scroll-region="primary">
+          <div class="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-primary-100 text-primary/80">
+            <i data-lucide="message-circle" class="h-20 w-20"></i>
+          </div>
+          <h2 class="text-2xl font-semibold tracking-tight text-foreground">选择一个会话开始聊天</h2>
+          <p class="mt-2 max-w-md text-center text-sm text-muted-foreground">点击左侧列表中的任意会话，即可进入对应聊天窗口。</p>
+        </div>
+      </section>
+    </main>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

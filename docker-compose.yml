@@ -1,0 +1,92 @@
+# AiCumi Docker Compose — 统一编排（OrbStack 原生路由）
+# 域名: web.aicumi.orb.local / chat-server.aicumi.orb.local
+# 三个 service 一个文件管理：
+#   - openclaw-gateway: 本地 OpenClaw 引擎（profile: local，默认不启动；数据在 ./local/）
+#   - chat-server / web: AiCumi 应用
+# Gateway 选择：本地测试用 127.0.0.1:18788（profile local）；部署用远程服务器（env 覆盖）
+
+services:
+  # ===== 本地 OpenClaw 引擎（测试/开发用）=====
+  # 云端生产为独立容器，此 service 仅本地使用；默认不启动，用 --profile local 显式启用
+  openclaw-gateway:
+    image: openclaw-cn:local
+    container_name: openclaw-gateway-local
+    profiles: ["local"]
+    init: true
+    restart: unless-stopped
+    mem_limit: 2g
+    memswap_limit: 2.5g
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    network_mode: host
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      PLAYWRIGHT_BROWSERS_PATH: /home/node/.cache/ms-playwright
+      UV_DEFAULT_INDEX: https://mirrors.aliyun.com/pypi/simple/
+      UV_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
+    volumes:
+      - ./local/openclaw:/home/node/.openclaw
+      - ./local/workspace:/data/workspace
+      - ./local/openclaw-cn/config:/app/config
+    # 只跑 gateway（+ mcporter 桥）；端口 18788，绑定 loopback（不占 18789 隧道）
+    command:
+      - bash
+      - -c
+      - >-
+        mkdir -p /home/node/.mcporter &&
+        { [ -f /home/node/.mcporter/mcporter.json ] ||
+          cp /app/config/mcporter.json /home/node/.mcporter/mcporter.json; } &&
+        mcporter daemon start --foreground >/tmp/mcporter-daemon.log 2>&1 &
+        sleep 2 &&
+        exec node openclaw.mjs gateway --bind loopback --port 18788 --allow-unconfigured
+
+  # 聊天服务器（API + WebSocket）
+  chat-server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    labels:
+      - "dev.orbstack.domains=chat-server.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local"
+    restart: unless-stopped
+    environment:
+      # 容器内访问宿主 OpenClaw（host 网络 18788）：host.docker.internal
+      # 上云部署时改为远程：http://112.124.69.224:18789 / ws://112.124.69.224:18789
+      - OPENCLAW_GATEWAY_HTTP_URL=http://host.docker.internal:18788
+      - OPENCLAW_GATEWAY_URL=ws://host.docker.internal:18788
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+      - OPENCLAW_LOCAL_DIR=/data/aicumi-local
+      - CHAT_PORT=3100
+      - CHAT_HOST=0.0.0.0
+      - DEFAULT_AGENT_ID=keling
+      - ALLOWED_HOSTS=localhost,chat-server.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local,web.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local
+    # 挂载本地 OpenClaw 数据（成员档案/技能/openclaw.json/审计），容器内统一读 /data/aicumi-local
+    volumes:
+      - ./local:/data/aicumi-local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Web UI（Nginx 静态文件 + 反代 API/WS → chat-server）
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    labels:
+      - "dev.orbstack.domains=web.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local"
+    restart: unless-stopped
+    depends_on:
+      - chat-server
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

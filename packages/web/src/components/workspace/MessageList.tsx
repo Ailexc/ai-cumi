@@ -1,0 +1,89 @@
+// AiCumi — 消息滚动区，忠实移植 design-reference/pages/chat-main.html + empty-state.html
+import { useEffect, useRef } from 'react';
+import { MessageCircle } from 'lucide-react';
+import type { ChatMessage } from '../../types';
+import { MessageBubble } from './MessageBubble';
+
+interface MessageListProps {
+  roomMessages: ChatMessage[];
+  /** 当前是否有选中会话 */
+  hasActiveRoom: boolean;
+  /** 会话标题（agent 名） */
+  roomTitle?: string;
+  agentAvatar?: string;
+  /** 在线 agent 数量（用于欢迎语） */
+  onlineCount?: number;
+  connected: boolean;
+}
+
+/** 按时段生成问候语 */
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return '夜深了，让团队帮你把事办完，早点休息';
+  if (h < 12) return '早安，今天想让团队帮你做什么？';
+  if (h < 18) return '下午好，今天想让团队帮你做什么？';
+  return '晚上好，今天想让团队帮你做什么？';
+}
+
+export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected }: MessageListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
+  // 新消息/流式更新时，若用户停留在底部则自动滚到底
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [roomMessages]);
+
+  // 无选中成员 → 空状态（源自 empty-state.html）
+  if (!hasActiveRoom) {
+    return (
+      <div className="aicumi-scroll flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
+        <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-primary-100 text-primary/80">
+          <MessageCircle size={80} className="h-20 w-20" />
+        </div>
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">选择一个团队成员开始对话</h2>
+        <p className="mt-2 max-w-md text-center text-sm text-muted-foreground">
+          点击左侧的团队成员，即可开始和 TA 对话——就像走进办公室找同事聊聊。
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="aicumi-scroll flex-1 overflow-y-auto"
+      data-scroll-region="primary"
+      ref={scrollRef}
+      onScroll={handleScroll}
+    >
+      <div className="mx-auto max-w-[780px] px-6 py-8">
+        {/* 问候区（ChatGPT 风格，恒在顶部） */}
+        <div className="mb-8 text-center">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">{greeting()}</h2>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {connected && onlineCount
+              ? `${onlineCount} 位团队成员已经在线，随时待命。`
+              : connected
+                ? '团队成员已经就绪，随时待命。'
+                : '正在连接团队服务…'}
+          </p>
+        </div>
+
+        <div className="space-y-6">
+          {roomMessages.map((m) => (
+            <MessageBubble key={m.id} msg={m} agentAvatar={agentAvatar} agentTitle={roomTitle || '助理'} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

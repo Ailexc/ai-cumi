@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+/* ============ AiCumi Design Tokens（设计系统基底，源自 design-reference/colors_and_type.css） ============ */
+:root {
+  /* Primary palette: low-saturation indigo */
+  --aicumi-primary: #5e6ad2;
+  --aicumi-primary-50: #f4f5fd;
+  --aicumi-primary-100: #e7e9fa;
+  --aicumi-primary-200: #d2d6f5;
+  --aicumi-primary-300: #b0b8ed;
+  --aicumi-primary-400: #8a94de;
+  --aicumi-primary-500: #5e6ad2;
+  --aicumi-primary-600: #4c57b8;
+  --aicumi-primary-700: #3f479c;
+  --aicumi-primary-foreground: #ffffff;
+
+  /* Neutral surfaces: warm whites */
+  --aicumi-background: #f7f7f8;
+  --aicumi-surface: #ffffff;
+  --aicumi-surface-2: #f3f3f5;
+  --aicumi-surface-3: #eaeaed;
+
+  /* Text: near-black to soft gray */
+  --aicumi-foreground: #1a1b1e;
+  --aicumi-foreground-secondary: #5f6368;
+  --aicumi-foreground-tertiary: #9aa0a6;
+  --aicumi-foreground-quaternary: #c4c7cc;
+
+  /* Semantic aliases */
+  --aicumi-card: #ffffff;
+  --aicumi-card-foreground: #1a1b1e;
+  --aicumi-popover: #ffffff;
+  --aicumi-popover-foreground: #1a1b1e;
+  --aicumi-muted: #f3f3f5;
+  --aicumi-muted-foreground: #5f6368;
+  --aicumi-border: rgba(26, 27, 30, 0.08);
+  --aicumi-border-strong: rgba(26, 27, 30, 0.14);
+  --aicumi-input: rgba(26, 27, 30, 0.08);
+  --aicumi-ring: #5e6ad2;
+
+  /* Status colors */
+  --aicumi-success: #22a45c;
+  --aicumi-warning: #d4891c;
+  --aicumi-error: #de3b46;
+  --aicumi-info: #3b82f6;
+
+  /* Radius */
+  --aicumi-radius-xs: 2px;
+  --aicumi-radius-sm: 4px;
+  --aicumi-radius-md: 8px;
+  --aicumi-radius-lg: 12px;
+  --aicumi-radius-xl: 16px;
+  --aicumi-radius-pill: 999px;
+
+  /* Shadows: ≤10% black, short distance */
+  --aicumi-shadow-1: 0 1px 2px rgba(26, 27, 30, 0.05), 0 1px 1px rgba(26, 27, 30, 0.03);
+  --aicumi-shadow-2: 0 4px 12px rgba(26, 27, 30, 0.08);
+  --aicumi-shadow-3: 0 12px 32px rgba(26, 27, 30, 0.12);
+
+  /* Typography */
+  --aicumi-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --aicumi-font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing 4px grid */
+  --aicumi-space-1: 4px;
+  --aicumi-space-2: 8px;
+  --aicumi-space-3: 12px;
+  --aicumi-space-4: 16px;
+  --aicumi-space-5: 20px;
+  --aicumi-space-6: 24px;
+  --aicumi-space-7: 32px;
+  --aicumi-space-8: 40px;
+  --aicumi-space-9: 48px;
+  --aicumi-space-10: 64px;
+
+  /* Layout */
+  --aicumi-sidebar-width: 220px;
+  --aicumi-conversation-width: 300px;
+  --aicumi-chat-max-width: 780px;
+  --aicumi-header-height: 60px;
+  --aicumi-composer-height: 80px;
+
+}
+
+/* ============================================================
+   Tailwind v4 theme 映射
+   用 @theme inline：让 bg-background / text-foreground /
+   border-border / shadow-sm / font-sans 等语义工具类可用
+   ============================================================ */
+@theme inline {
+  --color-background: var(--aicumi-background);
+  --color-foreground: var(--aicumi-foreground);
+  --color-card: var(--aicumi-card);
+  --color-card-foreground: var(--aicumi-card-foreground);
+  --color-popover: var(--aicumi-popover);
+  --color-popover-foreground: var(--aicumi-popover-foreground);
+  --color-primary: var(--aicumi-primary);
+  --color-primary-foreground: var(--aicumi-primary-foreground);
+  --color-primary-50: var(--aicumi-primary-50);
+  --color-primary-100: var(--aicumi-primary-100);
+  --color-primary-200: var(--aicumi-primary-200);
+  --color-primary-300: var(--aicumi-primary-300);
+  --color-primary-400: var(--aicumi-primary-400);
+  --color-primary-500: var(--aicumi-primary-500);
+  --color-primary-600: var(--aicumi-primary-600);
+  --color-primary-700: var(--aicumi-primary-700);
+  --color-muted: var(--aicumi-muted);
+  --color-muted-foreground: var(--aicumi-muted-foreground);
+  --color-surface: var(--aicumi-surface);
+  --color-surface-2: var(--aicumi-surface-2);
+  --color-surface-3: var(--aicumi-surface-3);
+  --color-border: var(--aicumi-border);
+  --color-input: var(--aicumi-input);
+  --color-ring: var(--aicumi-ring);
+  --color-success: var(--aicumi-success);
+  --color-warning: var(--aicumi-warning);
+  --color-error: var(--aicumi-error);
+  --color-info: var(--aicumi-info);
+  --radius-sm: var(--aicumi-radius-sm);
+  --radius-md: var(--aicumi-radius-md);
+  --radius-lg: var(--aicumi-radius-lg);
+  --radius-xl: var(--aicumi-radius-xl);
+  --shadow-sm: var(--aicumi-shadow-1);
+  --shadow-md: var(--aicumi-shadow-2);
+  --shadow-lg: var(--aicumi-shadow-3);
+  --font-sans: var(--aicumi-font-sans);
+  --font-mono: var(--aicumi-font-mono);
+}
+
+/* ============================================================
+   交互动效（克制：入场 200ms ease-out，淡入 + 轻上移）
+   ============================================================ */
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes typingDot {
+  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* 消息入场（挂在每帧消息根节点上） */
+.msg-enter {
+  animation: msgIn 200ms ease-out;
+}
+
+/* AI 流式回复时的打字指示点 */
+.typing-dot {
+  animation: typingDot 1.2s ease-in-out infinite;
+}
+
+/* 尊重系统减弱动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   应用壳（静态布局，源自 design-reference —— 勿删）
+   注意：不要再加全局未分层的 * { margin:0; padding:0 }
+   那会覆盖 Tailwind 的 @layer utilities（历史大坑，曾致 mx-auto 失效）
+   ============================================================ */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: var(--aicumi-font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+  background: var(--aicumi-background);
+  color: var(--aicumi-foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.aicumi-shell {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background: var(--aicumi-background);
+  color: var(--aicumi-foreground);
+  font-family: var(--aicumi-font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.aicumi-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.aicumi-roster {
+  width: 280px;
+  flex: 0 0 280px;
+  background: var(--aicumi-surface);
+  border-right: 1px solid var(--aicumi-border);
+}
+
+.aicumi-chat-canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--aicumi-background);
+}
+
+.aicumi-scroll {
+  overflow-y: auto;
+}
+
+.aicumi-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.aicumi-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.aicumi-scroll::-webkit-scrollbar-thumb {
+  background: var(--aicumi-border-strong);
+  border-radius: 999px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 图标（mask 渲染） */
+[data-icon] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  background-color: currentColor;
+}
