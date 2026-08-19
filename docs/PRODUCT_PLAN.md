@@ -82,14 +82,15 @@
 ### 阶段 0（验证可行性）—— ✅ 已完成 2026-08-16
 - [x] **研究 feishu channel 插件源码结构** → 结论：**完全可行**。`ChannelPlugin` 契约干净，feishu channel.ts 核心仅 359 行，Web Chat 通道比它简单（无外部 API）
 - [x] 产出 Web Chat 通道的最小实现方案 → 详见 `docs/RESEARCH-webchat-channel.md`
-- [ ] **进入实现**：搭 AiCumi 骨架（`plugins/webchat-channel/` + `server/` + `web/`），最小打通私聊
+- [x] **实现时发现：引擎原生就带 WebChat 协议**（`connect` 握手 + `chat.send`/`chat.history`，`client.mode: webchat`）→ **无需自研插件**，直接作为协议客户端直连 gateway（`TECH-gateway-ws-protocol.md`，`gateway-ws.ts`）
+- [x] 最小打通：1 房间、1 agent、私聊 — 2026-08-16 已验证
 
-### 阶段 1（MVP，单租户，自己用）—— 收尾中（2026-08-19 起）
+### 阶段 1（MVP，单租户，自己用）—— ✅ 已完成 2026-08-19
 - [x] 员工配置向导（MVP 版：聊天界面"添加成员"，名字+标识+角色模板）— 2026-08-17 完成
-- [ ] **员工配置向导（完整版：人设预览 + 迭代闭环）** ← 收尾项：填资料 → 生成人设预览 → 满意?→ 确认创建；不满意 → 修改/重新生成（P0）
+- [x] **员工配置向导（完整版：人设预览 + 迭代闭环）** — 2026-08-19 完成（previewPersona API + 3 步向导 UI）
 - [x] 自有聊天窗口（私聊打通 1 个 agent，**同事式交互**：点成员即持续对话）— 2026-08-16 已完成
-- [ ] **小研档案映射修复** ← 收尾项：按 openclaw.json 的 workspace 字段映射读取，而非写死 <agentId> 目录（P0，小 bug）
-- [ ] **容器模式写操作可用性** ← 收尾项：P2 写操作/招新依赖宿主 docker，仅本地 dev 可用，容器部署下要打通（P1）
+- [x] **小研档案映射修复** — 2026-08-19 完成（按 openclaw.json workspace 字段解析目录）
+- [x] **容器模式写操作可用性** — 2026-08-19 完成（Docker socket 挂载 + Dockerfile 装 CLI）
 - [ ] 外部 IM 作为可选通道保留 — **推迟到阶段二/三**（2026-08-19 决策）
 
 ### 阶段 2
