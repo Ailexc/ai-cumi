@@ -1,5 +1,5 @@
 // AiCumi — 员工管理写操作（P2：编辑人设/身份/模型、重建记忆、删除/停用）
-// 数据源：local/workspace/<agentId>/ 档案文件 + openclaw.json + docker exec（openclaw CLI）
+// 数据源：agentWorkspace（按 openclaw.json workspace 映射的目录）/ 档案文件 + openclaw.json + docker exec（openclaw CLI）
 // 安全原则：
 //   - 所有写操作先做**自动备份**（*.bak-<ts> 或 rename 目录）
 //   - roomId → rooms.getRoom 校验后取 agentId，杜绝路径穿越
@@ -18,7 +18,7 @@ import {
   copyFileSync,
 } from 'fs';
 import { join } from 'path';
-import { OPENCLAW_LOCAL_DIR } from './staff.js';
+import { OPENCLAW_LOCAL_DIR, agentWorkspace } from './staff.js';
 import * as rooms from './rooms.js';
 
 const execAsync = promisify(exec);
@@ -68,8 +68,9 @@ export function getAudit(agentId?: string, limit = 50): AuditEntry[] {
 /** 引擎主 agent（禁止删除/改名） */
 const ENGINE_AGENTS = new Set(['main']);
 
+/** agent 的 workspace 目录（共享映射，兼容 xiaoyan→researcher 共享目录） */
 function agentDir(agentId: string): string {
-  return join(WORKSPACE_DIR, agentId);
+  return agentWorkspace(agentId);
 }
 
 function readConfig(): any {

@@ -5,7 +5,7 @@
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, basename, relative } from 'path';
-import { OPENCLAW_LOCAL_DIR } from './staff.js';
+import { OPENCLAW_LOCAL_DIR, agentWorkspace } from './staff.js';
 import { gatewayGetHistory } from './gateway-ws.js';
 import * as rooms from './rooms.js';
 
@@ -15,10 +15,6 @@ const OPENCLAW_CONFIG = join(OPENCLAW_LOCAL_DIR, 'openclaw/openclaw.json');
 /** 文件树排除项 */
 const EXCLUDE_PREFIX = ['.openclaw', '.pi', '.', 'node_modules', 'skills/..'];
 const EXCLUDE_FILE = [/\.bak-/, /\.png$/, /\.jpg$/, /\.jpeg$/, /\.webp$/, /\.qrcode/, /^auth-qr/];
-
-function agentWorkspace(agentId: string): string {
-  return join(WORKSPACE_DIR, agentId);
-}
 
 function safeRead(p: string): string {
   try {

@@ -22,9 +22,33 @@ export const OPENCLAW_LOCAL_DIR = process.env.OPENCLAW_LOCAL_DIR
   ? resolve(process.env.OPENCLAW_LOCAL_DIR)
   : resolve(process.cwd(), '../../local');
 const WORKSPACE_DIR = join(OPENCLAW_LOCAL_DIR, 'workspace');
+const OPENCLAW_CONFIG = join(OPENCLAW_LOCAL_DIR, 'openclaw/openclaw.json');
 const ROLES_DIR = join(WORKSPACE_DIR, 'tools/roles');
 const GATEWAY_CONTAINER = process.env.OPENCLAW_GATEWAY_CONTAINER || 'openclaw-gateway-local';
 const DEFAULT_MODEL = process.env.OPENCLAW_NEW_AGENT_MODEL || 'custom-api-deepseek-com/deepseek-v4-flash';
+
+/**
+ * 解析 agent 的 workspace 目录（本地路径）
+ * 优先按 openclaw.json 里 agent.workspace 的 basename 映射——
+ * 兼容早期 agent 指向共享目录的情况（如 xiaoyan → /data/workspace/researcher）；
+ * 缺省/解析失败时回退到 workspace/<agentId>。
+ */
+export function agentWorkspace(agentId: string): string {
+  try {
+    if (existsSync(OPENCLAW_CONFIG)) {
+      const cfg = JSON.parse(readFileSync(OPENCLAW_CONFIG, 'utf8'));
+      const entry = (cfg?.agents?.list || []).find((a: any) => a.id === agentId);
+      const ws = entry?.workspace;
+      if (typeof ws === 'string' && ws.trim()) {
+        const name = basename(ws);
+        if (name) return join(WORKSPACE_DIR, name);
+      }
+    }
+  } catch {
+    /* 解析失败回退 */
+  }
+  return join(WORKSPACE_DIR, agentId);
+}
 
 /** 角色 → 中文标签 */
 const ROLE_LABELS: Record<string, string> = {
