@@ -14,6 +14,7 @@ import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
 import { Composer } from './Composer';
 import { MemberManagement } from './MemberManagement';
+import { ChannelWizard } from './ChannelWizard';
 import { getAgentMeta, formatTime, truncate } from './agentMeta';
 import type { Conv } from './Sidebar';
 
@@ -144,7 +145,7 @@ export function Workspace() {
       <AppRail
         active={activeNav}
         onSelect={(id) => {
-          if (id === 'chat' || id === 'members') setActiveNav(id);
+          if (id === 'chat' || id === 'members' || id === 'channels') setActiveNav(id);
           setRosterOpen(false);
         }}
         onPlanned={(label) => showToast(`${label} · 规划中，敬请期待`)}
@@ -157,6 +158,9 @@ export function Workspace() {
           connected={connected}
           onAdded={refreshRooms}
         />
+      ) : activeNav === 'channels' ? (
+        /* ===== 渠道管理视图 ===== */
+        <ChannelWizard onClose={() => setActiveNav('chat')} />
       ) : (
         /* ===== 消息视图：我的团队 + 聊天窗 ===== */
         <>

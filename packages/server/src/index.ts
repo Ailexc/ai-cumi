@@ -11,6 +11,7 @@ import * as rooms from './rooms.js';
 import { listRoles, addStaff, previewPersona } from './staff.js';
 import { listPersonaTemplates } from './persona-templates.js';
 import { getSkillCatalog, getAgentSkills, bindSkill, unbindSkill } from './skill-catalog.js';
+import { getChannels, getChannelConfig, toggleChannel, addChannelAccount, removeChannelAccount, getChannelTemplates, restartGateway } from './channels.js';
 import {
   listMemberSummaries,
   getMemberProfile,
@@ -374,6 +375,111 @@ app.get('/api/members/:id/audit', (req, res) => {
     res.json({ ok: true, entries: getAudit(room.agentId, limit) });
   } catch (err: any) {
     res.status(404).json({ ok: false, error: err.message });
+  }
+});
+
+// ============ 渠道管理（P2：渠道向导） ============
+
+/** 获取所有通道状态 */
+app.get('/api/channels', (_req, res) => {
+  try {
+    res.json({ ok: true, channels: getChannels() });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 获取通道模板（必须在 :id 路由之前） */
+app.get('/api/channels/templates', (_req, res) => {
+  try {
+    res.json({ ok: true, templates: getChannelTemplates() });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 获取通道配置详情 */
+app.get('/api/channels/:id', (req, res) => {
+  try {
+    const config = getChannelConfig(req.params.id);
+    if (!config) return res.status(404).json({ ok: false, error: '通道不存在' });
+    res.json({ ok: true, config });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 启用/禁用通道 */
+app.post('/api/channels/:id/toggle', (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ ok: false, error: 'enabled 必须是布尔值' });
+    }
+    const result = toggleChannel(req.params.id, enabled);
+    if (!result.ok) return res.status(400).json({ ok: false, error: result.error });
+    logAudit({
+      agentId: 'system',
+      memberName: '系统',
+      action: 'channel_toggle',
+      summary: `${enabled ? '启用' : '禁用'}通道：${req.params.id}`,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 添加通道账号 */
+app.post('/api/channels/:id/accounts', (req, res) => {
+  try {
+    const { accountId, ...accountConfig } = req.body || {};
+    if (!accountId) return res.status(400).json({ ok: false, error: 'accountId 必填' });
+    const result = addChannelAccount(req.params.id, accountId, accountConfig);
+    if (!result.ok) return res.status(400).json({ ok: false, error: result.error });
+    logAudit({
+      agentId: 'system',
+      memberName: '系统',
+      action: 'channel_account_add',
+      summary: `添加通道账号：${req.params.id}/${accountId}`,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 删除通道账号 */
+app.delete('/api/channels/:id/accounts/:accountId', (req, res) => {
+  try {
+    const result = removeChannelAccount(req.params.id, req.params.accountId);
+    if (!result.ok) return res.status(400).json({ ok: false, error: result.error });
+    logAudit({
+      agentId: 'system',
+      memberName: '系统',
+      action: 'channel_account_remove',
+      summary: `删除通道账号：${req.params.id}/${req.params.accountId}`,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 重启 gateway（使通道配置生效） */
+app.post('/api/channels/restart', async (_req, res) => {
+  try {
+    const result = await restartGateway();
+    if (!result.ok) return res.status(500).json({ ok: false, error: result.error });
+    logAudit({
+      agentId: 'system',
+      memberName: '系统',
+      action: 'gateway_restart',
+      summary: '重启 Gateway（通道配置生效）',
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

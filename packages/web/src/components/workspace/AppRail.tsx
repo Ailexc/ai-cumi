@@ -3,7 +3,7 @@
 // 未来能力（知识问答/云文档/日历/任务…）直接在这里扩展，无需塞进聊天主页。
 // 交互：点击功能项 → 右侧主区域切换对应视图（导航范式，非弹窗）。
 // 设计：窄栏 64px，竖排图标 + 标签；active 高亮；disabled 项为未来扩展位。
-import { MessageSquare, Users, BookOpen, FileText, CalendarDays, ListChecks, Settings } from 'lucide-react';
+import { MessageSquare, Users, BookOpen, FileText, CalendarDays, ListChecks, Settings, Radio } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type RailItemId = 'chat' | 'members' | string;
@@ -21,6 +21,7 @@ interface RailItem {
 const RAIL_ITEMS: RailItem[] = [
   { id: 'chat', label: '消息', icon: MessageSquare },
   { id: 'members', label: '成员管理', icon: Users },
+  { id: 'channels', label: '渠道', icon: Radio },
   // —— 未来扩展位 ——
   { id: 'knowledge', label: '知识问答', icon: BookOpen, planned: true },
   { id: 'docs', label: '云文档', icon: FileText, planned: true },
