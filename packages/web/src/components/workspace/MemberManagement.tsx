@@ -4,9 +4,10 @@
 // 数据：/api/members* 一组只读档案接口（读 workspace 档案 + gateway 历史）
 
 import { useEffect, useMemo, useState } from 'react';
-import { UserPlus, Search, Loader2, Pencil, Cpu, LogOut, RefreshCw, UserCog, Sparkles } from 'lucide-react';
+import { UserPlus, Search, Loader2, Pencil, Cpu, LogOut, RefreshCw, UserCog, Sparkles, Package } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { AddStaffForm } from './AddStaffForm';
+import { SkillMarket } from './SkillMarket';
 import { statusColor, statusLabel, formatTime } from './agentMeta';
 import type { Conv } from './Sidebar';
 
@@ -194,6 +195,19 @@ function ProfileView({
   onRefresh: () => void;
 }) {
   const [adminAction, setAdminAction] = useState<AdminAction>(null);
+  const [showSkillMarket, setShowSkillMarket] = useState(false);
+
+  // 如果显示技能市场，渲染技能市场页面
+  if (showSkillMarket) {
+    return (
+      <SkillMarket
+        agentId={member.id}
+        agentName={member.title}
+        onClose={() => setShowSkillMarket(false)}
+        onRefresh={onRefresh}
+      />
+    );
+  }
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* Tab 栏 */}
@@ -238,7 +252,13 @@ function ProfileView({
         <div className="mx-auto w-full max-w-3xl px-8 py-6">
           {activeTab === 'overview' && <OverviewView member={member} onAdminAction={setAdminAction} />}
           {activeTab === 'persona' && <PersonaView memberId={member.id} />}
-          {activeTab === 'skills' && <SkillsView memberId={member.id} />}
+          {activeTab === 'skills' && (
+            <SkillsView
+              memberId={member.id}
+              memberName={member.title}
+              onOpenMarket={() => setShowSkillMarket(true)}
+            />
+          )}
           {activeTab === 'memory' && <MemoryView memberId={member.id} />}
           {activeTab === 'history' && <HistoryView memberId={member.id} />}
           {activeTab === 'files' && <FilesView memberId={member.id} />}
@@ -762,47 +782,59 @@ function RefineWizardView({
 }
 
 /* 技能（P3：显示描述 + 可展开查看 SKILL.md 文档） */
-function SkillsView({ memberId }: { memberId: string }) {
+function SkillsView({ memberId, memberName, onOpenMarket }: { memberId: string; memberName?: string; onOpenMarket?: () => void }) {
   const { data, loading } = useFetch<{
     skills: { name: string; files: string[]; description: string; doc: string }[];
   }>(`/api/members/${memberId}/skills`);
   const [openId, setOpenId] = useState<string | null>(null);
   if (loading) return <Loading />;
   const skills = data?.skills || [];
-  if (skills.length === 0) return <Empty text="该成员还没有安装技能" />;
   return (
     <div className="space-y-3">
-      {skills.map((s) => {
-        const open = openId === s.name;
-        return (
-          <div key={s.name} className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
-            <button
-              onClick={() => setOpenId(open ? null : s.name)}
-              className="flex w-full items-start justify-between gap-3 text-left"
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-foreground">{s.name}</div>
-                {s.description && (
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.description}</p>
-                )}
-                <div className="mt-1.5 text-[11px] text-muted-foreground">{s.files.length} 个文件</div>
-              </div>
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  open ? 'bg-primary-100 text-primary' : 'bg-muted text-muted-foreground'
-                }`}
+      {/* 技能市场入口 */}
+      <button
+        onClick={onOpenMarket}
+        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground transition-colors hover:border-primary hover:bg-primary-50 hover:text-primary"
+      >
+        <Package size={16} />
+        <span>打开技能市场，为 {memberName || '该成员'} 配置更多技能</span>
+      </button>
+
+      {skills.length === 0 ? (
+        <Empty text="该成员还没有安装技能" />
+      ) : (
+        skills.map((s) => {
+          const open = openId === s.name;
+          return (
+            <div key={s.name} className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+              <button
+                onClick={() => setOpenId(open ? null : s.name)}
+                className="flex w-full items-start justify-between gap-3 text-left"
               >
-                {open ? '收起' : '文档'}
-              </span>
-            </button>
-            {open && s.doc && (
-              <pre className="aicumi-scroll mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-muted/50 p-4 font-mono text-xs leading-relaxed text-foreground-secondary">
-                {s.doc}
-              </pre>
-            )}
-          </div>
-        );
-      })}
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-foreground">{s.name}</div>
+                  {s.description && (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.description}</p>
+                  )}
+                  <div className="mt-1.5 text-[11px] text-muted-foreground">{s.files.length} 个文件</div>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    open ? 'bg-primary-100 text-primary' : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {open ? '收起' : '文档'}
+                </span>
+              </button>
+              {open && s.doc && (
+                <pre className="aicumi-scroll mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-muted/50 p-4 font-mono text-xs leading-relaxed text-foreground-secondary">
+                  {s.doc}
+                </pre>
+              )}
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }

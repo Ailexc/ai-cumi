@@ -10,6 +10,7 @@ import { initGatewayWs, isGatewayWsConnected } from './gateway-ws.js';
 import * as rooms from './rooms.js';
 import { listRoles, addStaff, previewPersona } from './staff.js';
 import { listPersonaTemplates } from './persona-templates.js';
+import { getSkillCatalog, getAgentSkills, bindSkill, unbindSkill } from './skill-catalog.js';
 import {
   listMemberSummaries,
   getMemberProfile,
@@ -187,6 +188,66 @@ app.get('/api/members/:id/skills', (req, res) => {
     res.json({ ok: true, skills: getSkills(req.params.id) });
   } catch (err: any) {
     res.status(404).json({ ok: false, error: err.message });
+  }
+});
+
+// ============ 技能市场（P2：技能编排） ============
+
+/** 技能目录（所有可用技能） */
+app.get('/api/skills/catalog', (_req, res) => {
+  try {
+    const catalog = getSkillCatalog();
+    res.json({ ok: true, catalog });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** agent 已绑定的技能 ID 列表 */
+app.get('/api/members/:id/skills/bound', (req, res) => {
+  try {
+    const skills = getAgentSkills(req.params.id);
+    res.json({ ok: true, skills });
+  } catch (err: any) {
+    res.status(404).json({ ok: false, error: err.message });
+  }
+});
+
+/** 绑定技能到 agent */
+app.post('/api/members/:id/skills/:skillId/bind', (req, res) => {
+  try {
+    const result = bindSkill(req.params.id, req.params.skillId);
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.error });
+    }
+    logAudit({
+      agentId: req.params.id,
+      memberName: req.params.id,
+      action: 'skill_bind',
+      summary: `绑定技能：${req.params.skillId}`,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** 解绑技能 */
+app.post('/api/members/:id/skills/:skillId/unbind', (req, res) => {
+  try {
+    const result = unbindSkill(req.params.id, req.params.skillId);
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.error });
+    }
+    logAudit({
+      agentId: req.params.id,
+      memberName: req.params.id,
+      action: 'skill_unbind',
+      summary: `解绑技能：${req.params.skillId}`,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
