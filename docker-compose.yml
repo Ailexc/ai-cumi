@@ -63,9 +63,12 @@ services:
       - CHAT_HOST=0.0.0.0
       - DEFAULT_AGENT_ID=keling
       - ALLOWED_HOSTS=localhost,chat-server.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local,web.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local
+      - OPENCLAW_GATEWAY_CONTAINER=openclaw-gateway-local
     # 挂载本地 OpenClaw 数据（成员档案/技能/openclaw.json/审计），容器内统一读 /data/aicumi-local
+    # 挂载 Docker Socket：供员工管理操作（docker exec agents add/delete/set-identity 等）
     volumes:
       - ./local:/data/aicumi-local
+      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     mem_limit: 512m
