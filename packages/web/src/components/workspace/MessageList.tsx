@@ -1,8 +1,11 @@
 // AiCumi — 消息滚动区，忠实移植 design-reference/pages/chat-main.html + empty-state.html
+// 阶段二：支持群聊（按 agentId 显示不同头像/名字）
 import { useEffect, useRef } from 'react';
 import { MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import { MessageBubble } from './MessageBubble';
+import { getAgentMeta } from './agentMeta';
+import { useMemberMeta } from '../../hooks/useMemberMeta';
 
 interface MessageListProps {
   roomMessages: ChatMessage[];
@@ -14,6 +17,10 @@ interface MessageListProps {
   /** 在线 agent 数量（用于欢迎语） */
   onlineCount?: number;
   connected: boolean;
+  /** 是否为群聊 */
+  isGroup?: boolean;
+  /** 群聊：agentId → 名称映射 */
+  agentNameMap?: Map<string, string>;
 }
 
 /** 按时段生成问候语 */
@@ -25,9 +32,10 @@ function greeting(): string {
   return '晚上好，今天想让团队帮你做什么？';
 }
 
-export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected }: MessageListProps) {
+export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected, isGroup, agentNameMap }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const memberMeta = useMemberMeta();
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -79,9 +87,28 @@ export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvata
         </div>
 
         <div className="space-y-6">
-          {roomMessages.map((m) => (
-            <MessageBubble key={m.id} msg={m} agentAvatar={agentAvatar} agentTitle={roomTitle || '助理'} />
-          ))}
+          {roomMessages.map((m) => {
+            // 群聊：根据 agentId 获取对应的头像和名字
+            const msgAgentId = m.agentId;
+            let msgAgentName: string | undefined;
+            let msgAgentAvatar: string | undefined;
+            if (isGroup && msgAgentId && m.role === 'assistant') {
+              msgAgentName = agentNameMap?.get(msgAgentId) || msgAgentId;
+              const meta = getAgentMeta(msgAgentId);
+              const mm = memberMeta[msgAgentId];
+              msgAgentAvatar = mm?.avatar || meta.avatar;
+            }
+            return (
+              <MessageBubble
+                key={m.id}
+                msg={m}
+                agentAvatar={agentAvatar}
+                agentTitle={roomTitle || '助理'}
+                agentName={msgAgentName}
+                agentMsgAvatar={msgAgentAvatar}
+              />
+            );
+          })}
         </div>
       </div>
     </div>

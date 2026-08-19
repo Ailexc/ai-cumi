@@ -1,13 +1,18 @@
 // AiCumi — 消息气泡（用户 / AI），忠实移植 design-reference/pages/chat-main.html
+// 阶段二：支持群聊（显示 agent 名字 + 头像）
 import type { ChatMessage } from '../../types';
 
 interface MessageBubbleProps {
   msg: ChatMessage;
   agentAvatar?: string;
   agentTitle: string;
+  /** 群聊时：该消息的 agent 名字（覆盖默认 agentTitle） */
+  agentName?: string;
+  /** 群聊时：该消息的 agent 头像 */
+  agentMsgAvatar?: string;
 }
 
-export function MessageBubble({ msg, agentAvatar, agentTitle }: MessageBubbleProps) {
+export function MessageBubble({ msg, agentAvatar, agentTitle, agentName, agentMsgAvatar }: MessageBubbleProps) {
   const isUser = msg.role !== 'assistant';
   const time = new Date(msg.timestamp);
   const timeText = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
@@ -28,17 +33,25 @@ export function MessageBubble({ msg, agentAvatar, agentTitle }: MessageBubblePro
     );
   }
 
+  // 群聊：显示消息来源的 agent 名字 + 头像
+  const displayName = agentName || agentTitle;
+  const displayAvatar = agentMsgAvatar || agentAvatar;
+
   return (
     <div className="msg-enter flex items-start gap-3">
-      {agentAvatar ? (
-        <img src={agentAvatar} alt={agentTitle} className="mt-1 h-9 w-9 rounded-full object-cover bg-muted" />
+      {displayAvatar ? (
+        <img src={displayAvatar} alt={displayName} className="mt-1 h-9 w-9 rounded-full object-cover bg-muted" />
       ) : (
         <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-medium text-primary">
-          {agentTitle.slice(0, 1)}
+          {displayName.slice(0, 1)}
         </div>
       )}
 
       <div className="max-w-[80%]">
+        {/* 群聊：显示 agent 名字 */}
+        {agentName && (
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">{agentName}</span>
+        )}
         <div className="rounded-2xl rounded-tl-md border border-border bg-surface px-4 py-3 shadow-sm">
           {msg.streaming && !msg.content ? (
             /* 流式回复尚未产出内容 → 打字指示点 */

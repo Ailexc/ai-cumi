@@ -29,8 +29,10 @@ interface UseChatSocketReturn {
   messages: Map<string, ChatMessage[]>;
   /** 未读角标（roomId → 条数；只计不在当前房间时到达的 assistant 新消息） */
   unread: Record<string, number>;
-  sendMessage: (roomId: string, content: string) => void;
+  sendMessage: (roomId: string, content: string, mentions?: string[]) => void;
   createRoom: (name: string, agentId: string) => void;
+  createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string) => void;
+  addGroupMember: (roomId: string, agentId: string) => void;
   loadHistory: (roomId: string) => void;
   refreshRooms: () => void;
   /** 标记房间已读（并设为当前活跃房间，切走前不计其未读） */
@@ -83,6 +85,7 @@ export function useChatSocket(): UseChatSocketReturn {
               roomId: msg.roomId,
               role: 'assistant',
               content: existing + msg.content,
+              agentId: msg.agentId,
               timestamp: Date.now(),
               streaming: true,
             });
@@ -99,7 +102,7 @@ export function useChatSocket(): UseChatSocketReturn {
           const roomMsgs = next.get(msg.roomId) || [];
           const idx = roomMsgs.findIndex((m) => m.id === msg.messageId);
           if (idx >= 0) {
-            roomMsgs[idx] = { ...roomMsgs[idx], content: msg.fullContent, streaming: false };
+            roomMsgs[idx] = { ...roomMsgs[idx], content: msg.fullContent, agentId: msg.agentId, streaming: false };
           }
           next.set(msg.roomId, [...roomMsgs]);
           return next;
@@ -117,6 +120,7 @@ export function useChatSocket(): UseChatSocketReturn {
             roomId: msg.roomId,
             role: m.role as 'user' | 'assistant',
             content: m.content,
+            agentId: m.agentId,
             timestamp: m.timestamp,
           }));
           const localMsgs = prev.get(msg.roomId) || [];
@@ -187,7 +191,7 @@ export function useChatSocket(): UseChatSocketReturn {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sendMessage = useCallback((roomId: string, content: string) => {
+  const sendMessage = useCallback((roomId: string, content: string, mentions?: string[]) => {
     // 立即在本地显示用户消息
     const userMsg: ChatMessage = {
       id: uuid(),
@@ -202,12 +206,34 @@ export function useChatSocket(): UseChatSocketReturn {
       next.set(roomId, [...roomMsgs, userMsg]);
       return next;
     });
-    // 发送到服务器
+    // 发送到服务器（支持群聊 mentions）
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'chat.send',
         roomId,
         content,
+        mentions,
+      } satisfies ClientMessage));
+    }
+  }, []);
+
+  const createGroup = useCallback((name: string, memberAgentIds: string[], ownerAgentId?: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'group.create',
+        name,
+        memberAgentIds,
+        ownerAgentId,
+      } satisfies ClientMessage));
+    }
+  }, []);
+
+  const addGroupMember = useCallback((roomId: string, agentId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'group.add-member',
+        roomId,
+        agentId,
       } satisfies ClientMessage));
     }
   }, []);
@@ -259,6 +285,8 @@ export function useChatSocket(): UseChatSocketReturn {
     unread,
     sendMessage,
     createRoom,
+    createGroup,
+    addGroupMember,
     loadHistory,
     refreshRooms,
     setActiveRoom,

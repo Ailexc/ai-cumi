@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import type { Room, ChatMessage } from './types.js';
+import type { Room, ChatMessage, RoomType } from './types.js';
 
 /** 本地 OpenClaw 实例目录（本地 dev：项目根 local/；容器模式：env 覆盖，挂载 /data/aicumi-local） */
 const OPENCLAW_LOCAL_DIR = process.env.OPENCLAW_LOCAL_DIR
@@ -60,7 +60,9 @@ function loadRooms(): void {
     const data = JSON.parse(readFileSync(ROOMS_FILE, 'utf8'));
     const list: Room[] = Array.isArray(data) ? data : [];
     for (const room of list) {
-      if (room?.id && room?.name && room?.agentId) {
+      if (room?.id && room?.name) {
+        // 向后兼容：没有 type 字段的旧房间默认为 dm
+        if (!room.type) room.type = 'dm';
         rooms.set(room.id, room);
         messageHistory.set(room.id, []);
       }
@@ -87,6 +89,7 @@ export function createRoom(name: string, agentId: string, id?: string): Room {
     id: id ?? randomUUID(),
     name,
     agentId,
+    type: 'dm',
     createdAt: Date.now(),
   };
   rooms.set(room.id, room);
@@ -95,9 +98,68 @@ export function createRoom(name: string, agentId: string, id?: string): Room {
   return room;
 }
 
+/** 创建群聊房间 */
+export function createGroupRoom(
+  name: string,
+  memberAgentIds: string[],
+  ownerAgentId?: string,
+  id?: string,
+): Room {
+  const owner = ownerAgentId || memberAgentIds[0];
+  const room: Room = {
+    id: id ?? `group-${randomUUID().slice(0, 8)}`,
+    name,
+    agentId: owner, // 兼容旧字段：dm 用，group 指向群主
+    type: 'group',
+    ownerAgentId: owner,
+    memberAgentIds: [...new Set(memberAgentIds)], // 去重
+    createdAt: Date.now(),
+  };
+  rooms.set(room.id, room);
+  messageHistory.set(room.id, []);
+  saveRooms();
+  return room;
+}
+
+/** 给群聊添加成员 */
+export function addGroupMember(roomId: string, agentId: string): boolean {
+  const room = rooms.get(roomId);
+  if (!room || room.type !== 'group') return false;
+  if (!room.memberAgentIds) room.memberAgentIds = [];
+  if (!room.memberAgentIds.includes(agentId)) {
+    room.memberAgentIds.push(agentId);
+    saveRooms();
+  }
+  return true;
+}
+
+/** 获取群聊的 sessionKey（为每个成员生成独立 session） */
+export function getGroupSessionKey(roomId: string, agentId: string): string {
+  return `agent:${agentId}:webchat:group:${roomId}`;
+}
+
 /** 获取房间列表 */
 export function listRooms(): Room[] {
   return Array.from(rooms.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 获取所有群聊房间 */
+export function listGroupRooms(): Room[] {
+  return Array.from(rooms.values())
+    .filter((r) => r.type === 'group')
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 获取所有私聊房间 */
+export function listDmRooms(): Room[] {
+  return Array.from(rooms.values())
+    .filter((r) => r.type !== 'group')
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 判断是否为群聊 */
+export function isGroupRoom(room: Room): boolean {
+  return room.type === 'group';
 }
 
 /** 获取单个房间 */
@@ -145,11 +207,15 @@ export function getMessages(roomId: string, limit = 50): ChatMessage[] {
   return history.slice(-limit);
 }
 
-/** 获取 Gateway session key（官方格式：agent:<agentId>:webchat:channel:<roomId>） */
+/** 获取 Gateway session key（官方格式） */
 export function getSessionKey(roomId: string): string {
   const room = rooms.get(roomId);
-  const agentId = room?.agentId || 'main';
-  return `agent:${agentId}:webchat:channel:${roomId}`;
+  if (!room) return `agent:main:webchat:channel:${roomId}`;
+  // group 类型不直接用这个，需要传 agentId 调 getGroupSessionKey
+  if (room.type === 'group') {
+    return `agent:${room.ownerAgentId || room.agentId}:webchat:group:${roomId}`;
+  }
+  return `agent:${room.agentId}:webchat:channel:${roomId}`;
 }
 
 /** 初始化：优先从磁盘加载；确保所有同事（默认 + 已注册 agent）都有固定房间 */

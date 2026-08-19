@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Server } from 'http';
 import { randomUUID } from 'crypto';
-import type { ClientMessage, ServerMessage, ChatMessage } from './types.js';
+import type { ClientMessage, ServerMessage, ChatMessage, HistoryMessage } from './types.js';
 import { gatewayChatSend, gatewayGetHistory, onGatewayEvent } from './gateway-ws.js';
 import * as rooms from './rooms.js';
 
@@ -50,24 +50,77 @@ async function handleMessage(
       break;
     }
 
+    case 'group.create': {
+      const room = rooms.createGroupRoom(
+        msg.name,
+        msg.memberAgentIds,
+        msg.ownerAgentId,
+      );
+      broadcast(wss, { type: 'room.created', room });
+      break;
+    }
+
+    case 'group.add-member': {
+      const ok = rooms.addGroupMember(msg.roomId, msg.agentId);
+      if (!ok) {
+        ws.send(JSON.stringify({ type: 'chat.error', roomId: msg.roomId, error: '群聊不存在' } satisfies ServerMessage));
+      } else {
+        // 通知所有客户端刷新房间列表
+        broadcast(wss, { type: 'room.list', rooms: rooms.listRooms() });
+      }
+      break;
+    }
+
     case 'chat.history': {
       const room = rooms.getRoom(msg.roomId);
       if (!room) {
         ws.send(JSON.stringify({ type: 'chat.history', roomId: msg.roomId, messages: [] } satisfies ServerMessage));
         return;
       }
-      // 从 Gateway 拉取远程历史（云端是权威源，天然多端同步）
-      const sessionKey = rooms.getSessionKey(msg.roomId);
-      try {
-        const remoteMsgs = await gatewayGetHistory(sessionKey, 100);
+
+      // 群聊：合并多个 agent 的 session 历史
+      if (rooms.isGroupRoom(room) && room.memberAgentIds) {
+        const allMsgs: HistoryMessage[] = [];
+        for (const agentId of room.memberAgentIds) {
+          const sk = rooms.getGroupSessionKey(msg.roomId, agentId);
+          try {
+            const msgs = await gatewayGetHistory(sk, 50);
+            for (const m of msgs) {
+              allMsgs.push({ ...m, agentId } as any);
+            }
+          } catch {
+            // 单个 agent 历史拉取失败不影响其他
+          }
+        }
+        // 按时间排序 + 去重（用户消息可能出现在多个 session）
+        allMsgs.sort((a, b) => a.timestamp - b.timestamp);
+        const seen = new Set<string>();
+        const merged: HistoryMessage[] = allMsgs.filter((m) => {
+          if (m.role === 'assistant') return true; // assistant 消息天然不重复
+          const key = `${m.role}:${m.content}:${Math.round(m.timestamp / 1000)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
         ws.send(JSON.stringify({
           type: 'chat.history',
           roomId: msg.roomId,
-          messages: remoteMsgs,
+          messages: merged,
         } satisfies ServerMessage));
-      } catch (err: any) {
-        console.error('[ws] chat.history error:', err.message);
-        ws.send(JSON.stringify({ type: 'chat.history', roomId: msg.roomId, messages: [] } satisfies ServerMessage));
+      } else {
+        // 私聊：单 session 历史（现状）
+        const sessionKey = rooms.getSessionKey(msg.roomId);
+        try {
+          const remoteMsgs = await gatewayGetHistory(sessionKey, 100);
+          ws.send(JSON.stringify({
+            type: 'chat.history',
+            roomId: msg.roomId,
+            messages: remoteMsgs,
+          } satisfies ServerMessage));
+        } catch (err: any) {
+          console.error('[ws] chat.history error:', err.message);
+          ws.send(JSON.stringify({ type: 'chat.history', roomId: msg.roomId, messages: [] } satisfies ServerMessage));
+        }
       }
       break;
     }
@@ -89,6 +142,106 @@ async function handleMessage(
       };
       rooms.addMessage(msg.roomId, userMsg);
 
+      // 群聊路由：@ 路由到对应 agent，不 @ 则发给群主
+      if (rooms.isGroupRoom(room)) {
+        const memberIds = room.memberAgentIds || [];
+        const mentions = msg.mentions || [];
+
+        // 确定目标 agent 列表
+        let targets: string[];
+        if (mentions.length > 0) {
+          // 有 @：只发给被 @ 的成员（且必须是群成员）
+          targets = mentions.filter((m) => memberIds.includes(m));
+        } else {
+          // 无 @：只回群主
+          targets = [room.ownerAgentId || room.agentId];
+        }
+
+        if (targets.length === 0) {
+          ws.send(JSON.stringify({
+            type: 'chat.error',
+            roomId: msg.roomId,
+            error: '未找到有效的 @ 目标',
+          } satisfies ServerMessage));
+          return;
+        }
+
+        // 为每个目标 agent 发送消息并订阅事件
+        for (const targetAgentId of targets) {
+          const sessionKey = rooms.getGroupSessionKey(msg.roomId, targetAgentId);
+          const assistantMsgId = randomUUID();
+          let fullContent = '';
+
+          try {
+            const runId = await gatewayChatSend(sessionKey, msg.content, randomUUID());
+            console.log(`[ws] group chat.send ok room=${msg.roomId} agent=${targetAgentId} runId=${runId}`);
+
+            let finished = false;
+            const finish = () => {
+              if (finished) return;
+              finished = true;
+              unsubscribe();
+            };
+            const fallbackTimer = setTimeout(finish, 120000);
+
+            const unsubscribe = onGatewayEvent((event, payload) => {
+              if (payload?.runId !== runId) return;
+
+              if (event === 'agent') {
+                const data = payload?.data;
+                if (payload?.stream === 'assistant' && data?.delta) {
+                  const delta = data.delta;
+                  fullContent += delta;
+                  ws.send(JSON.stringify({
+                    type: 'chat.chunk',
+                    roomId: msg.roomId,
+                    messageId: assistantMsgId,
+                    content: delta,
+                    agentId: targetAgentId,
+                  } satisfies ServerMessage));
+                }
+              } else if (event === 'chat') {
+                if (payload?.state === 'final' && payload?.message) {
+                  const text = extractText(payload.message.content);
+                  if (text) {
+                    fullContent = text;
+                    const assistantMsg: ChatMessage = {
+                      id: assistantMsgId,
+                      roomId: msg.roomId,
+                      role: 'assistant',
+                      content: fullContent,
+                      agentId: targetAgentId,
+                      timestamp: Date.now(),
+                      streaming: false,
+                    };
+                    rooms.addMessage(msg.roomId, assistantMsg);
+
+                    ws.send(JSON.stringify({
+                      type: 'chat.done',
+                      roomId: msg.roomId,
+                      messageId: assistantMsgId,
+                      fullContent,
+                      agentId: targetAgentId,
+                    } satisfies ServerMessage));
+                  }
+                  finish();
+                  clearTimeout(fallbackTimer);
+                }
+              }
+            });
+          } catch (err: any) {
+            console.error(`[ws] group chat.send error agent=${targetAgentId}:`, err);
+            ws.send(JSON.stringify({
+              type: 'chat.error',
+              roomId: msg.roomId,
+              error: `${targetAgentId}: ${err.message || '发送失败'}`,
+            } satisfies ServerMessage));
+          }
+        }
+        return; // 群聊已处理，不走下面的私聊逻辑
+      }
+
+      // ===== 私聊逻辑（现状） =====
       // 创建 assistant 消息占位（流式累积）
       const assistantMsgId = randomUUID();
       let fullContent = '';

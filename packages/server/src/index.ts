@@ -80,6 +80,37 @@ app.get('/api/rooms/:id/messages', (req, res) => {
   res.json({ ok: true, messages: msgs });
 });
 
+// ============ 群聊管理（P2：阶段二） ============
+
+/** 创建群聊 */
+app.post('/api/groups', (req, res) => {
+  const { name, memberAgentIds, ownerAgentId } = req.body || {};
+  if (!name || !Array.isArray(memberAgentIds) || memberAgentIds.length === 0) {
+    return res.status(400).json({ ok: false, error: 'name 和 memberAgentIds 必填' });
+  }
+  const room = rooms.createGroupRoom(name, memberAgentIds, ownerAgentId);
+  res.json({ ok: true, room });
+});
+
+/** 群聊添加成员 */
+app.post('/api/groups/:id/members', (req, res) => {
+  const { agentId } = req.body || {};
+  if (!agentId) {
+    return res.status(400).json({ ok: false, error: 'agentId 必填' });
+  }
+  const ok = rooms.addGroupMember(req.params.id, agentId);
+  if (!ok) {
+    return res.status(404).json({ ok: false, error: '群聊不存在' });
+  }
+  const room = rooms.getRoom(req.params.id);
+  res.json({ ok: true, room });
+});
+
+/** 列出所有群聊 */
+app.get('/api/groups', (_req, res) => {
+  res.json({ ok: true, groups: rooms.listGroupRooms() });
+});
+
 // ============ 员工管理（P0：添加员工向导） ============
 
 /** 可用角色模板列表（供员工向导选择） */
