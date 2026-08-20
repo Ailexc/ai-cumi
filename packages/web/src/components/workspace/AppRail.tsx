@@ -3,7 +3,7 @@
 // 未来能力（知识问答/云文档/日历/任务…）直接在这里扩展，无需塞进聊天主页。
 // 交互：点击功能项 → 右侧主区域切换对应视图（导航范式，非弹窗）。
 // 设计：窄栏 64px，竖排图标 + 标签；active 高亮；disabled 项为未来扩展位。
-import { MessageSquare, Users, BookOpen, FileText, CalendarDays, ListChecks, Settings, Radio } from 'lucide-react';
+import { MessageSquare, Users, BookOpen, FileText, CalendarDays, ListChecks, Settings, Radio, Cpu } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type RailItemId = 'chat' | 'members' | string;
@@ -17,16 +17,21 @@ interface RailItem {
   planned?: boolean;
 }
 
-/** 功能项：启用 + 扩展位 */
+/** 主导航功能项（已启用） */
 const RAIL_ITEMS: RailItem[] = [
   { id: 'chat', label: '消息', icon: MessageSquare },
   { id: 'members', label: '成员管理', icon: Users },
   { id: 'channels', label: '渠道', icon: Radio },
-  // —— 未来扩展位 ——
+  { id: 'models', label: '模型', icon: Cpu },
+];
+
+/** 未来扩展位（底部灰显） */
+const PLANNED_ITEMS: RailItem[] = [
   { id: 'knowledge', label: '知识问答', icon: BookOpen, planned: true },
   { id: 'docs', label: '云文档', icon: FileText, planned: true },
   { id: 'calendar', label: '日历', icon: CalendarDays, planned: true },
   { id: 'tasks', label: '任务', icon: ListChecks, planned: true },
+  { id: 'settings', label: '设置', icon: Settings, planned: true },
 ];
 
 interface AppRailProps {
@@ -83,16 +88,24 @@ export function AppRail({ active, onSelect, onPlanned }: AppRailProps) {
         })}
       </nav>
 
-      {/* 底部：设置 */}
-      <button
-        className="flex w-full flex-col items-center gap-1 rounded-lg py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        aria-label="设置"
-        title="设置（规划中）"
-        onClick={() => onPlanned?.('设置')}
-      >
-        <Settings size={20} />
-        <span className="text-[10px] leading-none">设置</span>
-      </button>
+      {/* 底部：未来扩展位（灰显） */}
+      <div className="flex w-full flex-col items-center gap-0.5 border-t border-border px-1.5 pt-2">
+        {PLANNED_ITEMS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              className="flex w-full flex-col items-center gap-1 rounded-lg py-2 text-muted-foreground opacity-50 transition-colors hover:bg-muted hover:opacity-100"
+              aria-label={item.label}
+              title={`${item.label}（规划中）`}
+              onClick={() => onPlanned?.(item.label)}
+            >
+              <Icon size={18} />
+              <span className="text-[10px] leading-none">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

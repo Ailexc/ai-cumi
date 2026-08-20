@@ -1,0 +1,25 @@
+# AG2 and AutoGen
+ag2[openai]
+autogen-agentchat
+autogen-ext[openai]
+
+# FastAPI and ASGI server
+fastapi
+uvicorn[standard]
+websockets
+
+# Database
+sqlalchemy
+aiosqlite
+
+# Utilities
+python-dotenv
+pydantic
+pydantic-settings
+python-multipart
+cryptography
+
+# Development
+pytest
+pytest-asyncio
+httpx

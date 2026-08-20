@@ -14,3 +14,32 @@ local/workspace/
 # 运行时数据（可从 openclaw.json 重建）
 local/server-data/
 local/audit-log.json
+
+# Python 虚拟环境
+learning/ag2-env/
+.venv/
+venv/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 数据库文件
+*.db
+server/data/
+
+# AI 生成的废报告（可从代码重建）
+docs/CLEANUP-*.md
+docs/CAPABILITY-GAP-ANALYSIS.md
+docs/TECHNICAL-SELECTION-*.md
+docs/AG2-LEARNING-VALUE-FINAL.md
+
+# 学习笔记（本地笔记，不需要入库）
+learning/AG2-LEARNING-NOTES.md
+learning/requirements.txt
+
+# Docker 构建产物
+.docker/
+docker-compose.override.yml
