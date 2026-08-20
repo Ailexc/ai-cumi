@@ -341,13 +341,14 @@ function extractText(content: any): string {
   return '';
 }
 
-/** 获取默认 agent 列表（兜底） */
+/** 获取 agent 列表（从房间动态获取，排除群聊） */
 function getDefaultAgents() {
-  return [
-    { id: 'keling', name: '可灵', status: 'running' as const },
-    { id: 'xiaoyan', name: '小研', status: 'running' as const },
-    { id: 'staff-dde57f', name: '小文', status: 'running' as const },
-  ];
+  const dmRooms = rooms.listRooms().filter((r) => r.type !== 'group');
+  return dmRooms.map((r) => ({
+    id: r.agentId,
+    name: r.name,
+    status: 'running' as const,
+  }));
 }
 
 /** 创建 WebSocket 服务器 */

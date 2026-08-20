@@ -51,13 +51,14 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
-/** Agent 列表 */
+/** Agent 列表（从房间动态获取，排除群聊） */
 app.get('/api/agents', (_req, res) => {
-  const agents: Agent[] = [
-    { id: 'keling', name: '可灵', status: 'running' },
-    { id: 'xiaoyan', name: '小研', status: 'running' },
-    { id: 'staff-dde57f', name: '小文', status: 'running' },
-  ];
+  const dmRooms = rooms.listRooms().filter((r) => r.type !== 'group');
+  const agents: Agent[] = dmRooms.map((r) => ({
+    id: r.agentId,
+    name: r.name,
+    status: 'running',
+  }));
   res.json({ ok: true, agents });
 });
 
