@@ -110,6 +110,7 @@ class AgentManager:
         self.agent_instances: Dict[str, Any] = {}  # Real AG2 agents in real mode, None in mock
         self.model_client: Optional[Any] = None
         self.model_client_stream: bool = True
+        self.agent_model_clients: Dict[str, Any] = {}  # per-agent model client override
 
         # Persona templates (for display/UI reference)
         self.persona_templates = {
@@ -147,6 +148,79 @@ class AgentManager:
         self.model_client = model_client
         self.model_client_stream = stream
 
+    def _build_agent_instance(self, agent_id: str) -> Optional[Any]:
+        """Build a real AssistantAgent from the agent's stored metadata.
+
+        Uses the per-agent model client override if set, otherwise the shared one.
+        Returns None in mock mode / when no client is available.
+        """
+        info = self.agents.get(agent_id)
+        if not info:
+            return None
+        client = self.agent_model_clients.get(agent_id) or self.model_client
+        # A per-agent model override forces real mode even if the manager is in
+        # mock mode (user explicitly switched this member to a real model).
+        has_override = agent_id in self.agent_model_clients
+        use_real = (
+            HAS_REAL_AGENT
+            and client is not None
+            and (has_override or not self.mock_mode or info.get("force_real"))
+        )
+        if not use_real:
+            return None
+        return AssistantAgent(
+            name=agent_id,
+            model_client=client,
+            model_client_stream=self.model_client_stream,
+            system_message=info.get("persona") or "",
+            description=f"{info.get('name', agent_id)} - {info.get('role', 'assistant')}",
+        )
+
+    async def rebuild_agent(self, agent_id: str) -> Optional[Any]:
+        """Rebuild an agent's real instance after metadata/model changes.
+
+        Preserves the agent record; swaps out the underlying AssistantAgent
+        (e.g. after a persona or model update).
+        """
+        info = self.agents.get(agent_id)
+        if not info:
+            return None
+        try:
+            instance = self._build_agent_instance(agent_id)
+            self.agent_instances[agent_id] = instance
+            info["mode"] = "real" if instance is not None else "mock"
+            info["updated_at"] = datetime.now().isoformat()
+            print(f"🔄 Rebuilt agent: {agent_id} [{info['mode']}]")
+            return instance
+        except Exception as e:
+            print(f"⚠️ Failed to rebuild agent {agent_id}: {e}")
+            self.agent_instances[agent_id] = None
+            info["mode"] = "mock"
+            return None
+
+    async def update_agent(
+        self,
+        agent_id: str,
+        name: Optional[str] = None,
+        persona: Optional[str] = None,
+        role: Optional[str] = None,
+        rebuild: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Update an agent's metadata (name/persona/role) and rebuild its instance."""
+        info = self.agents.get(agent_id)
+        if not info:
+            return None
+        if name is not None:
+            info["name"] = name
+        if persona is not None:
+            info["persona"] = persona
+        if role is not None:
+            info["role"] = role
+        info["updated_at"] = datetime.now().isoformat()
+        if rebuild:
+            await self.rebuild_agent(agent_id)
+        return dict(info)
+
     async def initialize_default_agents(self):
         """Initialize default agents."""
         for agent_id, agent_config in self.default_agents.items():
@@ -171,31 +245,7 @@ class AgentManager:
         if agent_id in self.agents:
             raise ValueError(f"Agent {agent_id} already exists")
 
-        agent_instance = None
-        use_real = (
-            HAS_REAL_AGENT
-            and self.model_client is not None
-            and (not self.mock_mode or force_real)
-        )
-
-        if use_real:
-            try:
-                agent_instance = AssistantAgent(
-                    name=agent_id,
-                    model_client=self.model_client,
-                    model_client_stream=self.model_client_stream,
-                    system_message=persona,
-                    description=f"{name} - {role}",
-                )
-                mode = "real"
-                print(f"✅ Created REAL AG2 agent: {name} ({agent_id})")
-            except Exception as e:
-                print(f"⚠️ Failed to create real agent, falling back to mock: {e}")
-                mode = "mock"
-        else:
-            mode = "mock"
-            print(f"🤖 Creating MOCK agent: {name} ({agent_id})")
-
+        # Store metadata first, then build the instance via the shared path
         self.agents[agent_id] = {
             "id": agent_id,
             "name": name,
@@ -206,9 +256,15 @@ class AgentManager:
             "updated_at": datetime.now().isoformat(),
             "tools": tools or [],
             "is_active": True,
-            "mode": mode,
+            "force_real": force_real,
+            "mode": "mock",
         }
+
+        agent_instance = self._build_agent_instance(agent_id)
         self.agent_instances[agent_id] = agent_instance
+        mode = "real" if agent_instance is not None else "mock"
+        self.agents[agent_id]["mode"] = mode
+        print(f"{'✅ Created REAL AG2 agent' if mode == 'real' else '🤖 Creating MOCK agent'}: {name} ({agent_id})")
         return agent_instance
 
     async def delete_agent(self, agent_id: str):

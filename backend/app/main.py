@@ -18,10 +18,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .agents.agent_manager import AgentManager, GroupChatManager
+from .api import members as members_router
+from .api import skills as skills_router
+from .api import staff as staff_router
+from .api import channels as channels_router
 from .chat.websocket_manager import WebSocketManager
 from .config import settings
 from .database import init_db, get_db
 from .services.model_service import ModelManagementService, ModelKeyEncryptor
+from . import state
 
 
 # Global instances
@@ -51,10 +56,13 @@ async def lifespan(app: FastAPI):
     # Initialize agent manager:
     #   - mock_mode=True  → force mock
     #   - mock_mode=False/None → auto: real if a default model config exists
+    from .agents.agent_manager import build_model_client
+    from .models import MemberProfile
+
     agent_manager = AgentManager(mock_mode=True)  # start in mock as safe default
-    if settings.mock_mode is not True:
-        db = next(get_db())
-        try:
+    db = next(get_db())
+    try:
+        if settings.mock_mode is not True:
             service = ModelManagementService(db, model_encryptor)
             configs = service.get_all_configs()
             default = next((c for c in configs if c.default_model), None) or (
@@ -63,8 +71,6 @@ async def lifespan(app: FastAPI):
             if default:
                 api_key = service.get_decrypted_key(default.id)
                 if api_key:
-                    from .agents.agent_manager import build_model_client
-
                     client = build_model_client(
                         provider=default.provider,
                         model_name=default.model_name,
@@ -80,20 +86,49 @@ async def lifespan(app: FastAPI):
                     )
                 else:
                     print("⚠️ Default model found but key cannot be decrypted → mock mode")
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"⚠️ Failed to init real agent manager, falling back to mock: {e!r}")
-        finally:
-            db.close()
-    else:
-        print("ℹ️ mock_mode=True → running in MOCK mode")
+        else:
+            print("ℹ️ mock_mode=True → running in MOCK mode")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"⚠️ Failed to init real agent manager, falling back to mock: {e!r}")
 
     # Initialize default agents
     await agent_manager.initialize_default_agents()
 
+    # Re-apply per-agent model bindings persisted in member_profiles.model_id
+    # (survives restarts; each bound agent gets its own model client).
+    try:
+        bound = db.query(MemberProfile).filter(MemberProfile.model_id.isnot(None)).all()
+        for row in bound:
+            if row.agent_id not in agent_manager.agents:
+                continue
+            config = db.get(ModelConfig, row.model_id)
+            if not config:
+                continue
+            api_key = ModelManagementService(db, model_encryptor).get_decrypted_key(row.model_id)
+            if not api_key:
+                continue
+            client = build_model_client(
+                provider=config.provider,
+                model_name=config.model_name,
+                api_key=api_key,
+                base_url=config.base_url,
+            )
+            agent_manager.agent_model_clients[row.agent_id] = client
+            await agent_manager.rebuild_agent(row.agent_id)
+    except Exception as e:
+        print(f"⚠️ Failed to re-apply per-agent model bindings: {e}")
+
     # Initialize group chat manager
     group_chat_manager = GroupChatManager(agent_manager)
+    db.close()
+
+    # Publish singletons to shared state for API routers
+    state.agent_manager = agent_manager
+    state.group_chat_manager = group_chat_manager
+    state.ws_manager = ws_manager
+    state.model_encryptor = model_encryptor
 
     print("✅ AiCumi AG2 Backend started successfully")
     print(f"🤖 Agent count: {len(agent_manager.agents)}")
@@ -124,6 +159,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(members_router.router)
+app.include_router(skills_router.router)
+app.include_router(staff_router.router)
+app.include_router(channels_router.router)
 
 
 # Pydantic models
@@ -520,46 +561,22 @@ async def create_room(room_data: dict):
     return {"status": "created", "room": room_data}
 
 
-# Member management endpoints
-@app.get("/api/members")
-async def list_members():
-    """List all members (agents)."""
-    if not agent_manager:
-        raise HTTPException(status_code=500, detail="Agent manager not initialized")
-    
-    members = []
-    for agent_id, agent_info in agent_manager.agents.items():
-        members.append({
-            "id": agent_id,
-            "name": agent_info.get("name", ""),
-            "role": agent_info.get("role", "assistant"),
-            "persona": agent_info.get("persona", ""),
-        })
-    return {"members": members}
-
-
-# Skills management endpoints
-@app.get("/api/skills")
-async def list_skills():
-    """List available skills."""
-    # TODO: Implement skills management
-    return {
-        "skills": [
-            {"id": "web_search", "name": "网络搜索", "description": "搜索互联网获取信息"},
-            {"id": "file_read", "name": "文件读取", "description": "读取本地文件内容"},
-            {"id": "file_write", "name": "文件写入", "description": "写入内容到文件"},
-        ]
-    }
-
-
 # ---- Model Management API ----
+def _model_payload_with_name(config: dict) -> dict:
+    """Add a display `name` field (frontend model switcher uses {id, name})."""
+    payload = dict(config)
+    payload["name"] = f"{payload.get('provider', '')} · {payload.get('model_name', '')}"
+    return payload
+
+
 @app.get("/api/models")
 async def list_models(db: Session = Depends(get_db)):
     """List all model configurations (API keys are masked)."""
     service = ModelManagementService(db, model_encryptor)
     configs = service.get_all_configs()
     return {
-        "models": [service.get_config(c.id) for c in configs]
+        "ok": True,
+        "models": [_model_payload_with_name(service.get_config(c.id)) for c in configs]
     }
 
 

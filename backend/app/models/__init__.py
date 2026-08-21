@@ -3,7 +3,7 @@ SQLAlchemy models for AiCumi AG2 Backend.
 """
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String, Text, Index
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -93,4 +93,73 @@ class Room(Base):
     room_type = Column(String(20), default="group")  # group, dm, broadcast
     owner_id = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# ---- P2: Member profiles / audit / skills / channels ----
+
+
+class MemberProfile(Base):
+    """Per-agent profile (persona, duty, memory, model binding, identity)."""
+    __tablename__ = "member_profiles"
+
+    agent_id = Column(String(50), primary_key=True)
+    name = Column(String(100), nullable=False)
+    role = Column(String(50), default="assistant")
+    persona = Column(Text, nullable=True)
+    duty = Column(Text, nullable=True)
+    department = Column(String(100), nullable=True)
+    emoji = Column(String(20), nullable=True)
+    theme = Column(String(50), nullable=True)
+    model_id = Column(Integer, nullable=True)
+    memory = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AuditLog(Base):
+    """Write-operation audit trail for a member."""
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(50), index=True, nullable=False)
+    action = Column(String(50), nullable=False)  # persona_update / identity_update / model_switch / ...
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class MemberSkill(Base):
+    """Skill binding for a member."""
+    __tablename__ = "member_skills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(50), index=True, nullable=False)
+    skill_id = Column(String(100), nullable=False)
+    bound_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (Index("ix_member_skill", "agent_id", "skill_id", unique=True),)
+
+
+class Channel(Base):
+    """External IM channel configuration."""
+    __tablename__ = "channels"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    enabled = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ChannelAccount(Base):
+    """Account/bot binding inside a channel."""
+    __tablename__ = "channel_accounts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    channel_id = Column(String(50), index=True, nullable=False)
+    account_id = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=True)
+    bot_name = Column(String(100), nullable=True)
+    enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
