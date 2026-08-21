@@ -67,37 +67,45 @@ AiCumi/
 └── .env                               # 环境变量
 ```
 
-## 快速开始
+## 开发规范（Docker + OrbStack，重要）
 
-### 本地开发
+**部署与调试一律走 Docker + OrbStack，不在宿主机启动任何本地进程。**
+
+- 后端与前端均以 Docker 容器运行，由 OrbStack 统一管理。
+- 访问服务**统一使用 OrbStack 生成的域名，不用 localhost**：
+
+| 服务 | OrbStack 域名 |
+|------|--------------|
+| 后端 API | `http://chat-server.aicumi.orb.local` |
+| 前端 UI | `http://web.aicumi.orb.local` |
+
+- 宿主机**不得直接运行** `python run.py` / uvicorn / `pnpm dev:server` 等进程，避免与容器端口（如 8000）冲突。
+- 容器职责：
+  - `chat-server`：Python FastAPI + uvicorn，端口 8000（`docker-compose.yml`）
+  - `web`：Nginx 托管前端，并反代 `/api`、`/ws` 到 `chat-server`（`packages/web/nginx.conf`）
+
+## 快速开始（Docker）
 
 ```bash
-# 安装依赖
-pnpm install
-
-# 启动聊天服务器（端口 3100）
-pnpm dev:server
-
-# 启动 Web UI（端口 5173，自动代理 API/WS）
-pnpm dev:web
-```
-
-访问 http://localhost:5173 即可开始聊天。
-
-### 生产部署
-
-```bash
-# 同步到服务器并部署
-./scripts/deploy.sh
-
-# 或手动
+# 构建并启动（由 OrbStack 管理）
 docker compose up -d --build
+
+# 查看状态 / 日志
+docker compose ps
+docker compose logs -f chat-server
+
+# 停止 / 重启
+docker compose down
+docker compose up -d
 ```
+
+- 前端 UI：http://web.aicumi.orb.local
+- 后端 API / Swagger 文档：http://chat-server.aicumi.orb.local/docs
 
 ## 技术栈
 
 - **引擎**：OpenClaw CN（阿里云 ECS 已有生产实例）
-- **聊天后端**：Node.js + Express + WebSocket
+- **聊天后端**：Python + FastAPI + WebSocket（Docker 容器运行）
 - **聊天 UI**：React + Vite + Tailwind CSS v4
 - **通信协议**：**Gateway WebSocket 协议**（官方 WebChat 通道：`connect` / `chat.send` / `chat.history` / 事件流）——见 `docs/TECH-gateway-ws-protocol.md`
 - **消息持久化**：云端（OpenClaw session 落盘）+ 房间元数据本地持久化（`server/data/rooms.json`）

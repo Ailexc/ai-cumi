@@ -1,22 +1,12 @@
-# AiCumi Docker Compose — 统一编排（OrbStack 原生路由）
+# AiCumi Docker Compose
 # 域名: web.aicumi.orb.local / chat-server.aicumi.orb.local
-# 三个 service 一个文件管理：
-#   - openclaw-gateway: 本地 OpenClaw 引擎（profile: local，默认不启动；数据在 ./local/）
-#   - chat-server / web: AiCumi 应用
-# Gateway 选择：本地测试用 127.0.0.1:18788（profile local）；部署用远程服务器（env 覆盖）
 
 services:
-  # ===== 本地 OpenClaw 引擎（测试/开发用）=====
-  # 云端生产为独立容器，此 service 仅本地使用；默认不启动，用 --profile local 显式启用
-  # ===== AI Code Review Team（旧项目，占8000端口 → 已迁移到新项目）=====
-  # 此服务已被删除：前端和后端已在 OrbStack 外部删除
-  # aicodi reviewteam-backend-1 (Exited 255) — 不再使用
-
-  # ===== 聊天服务器（Python FastAPI + AG2 Mock 模式）=====
+  # 聊天服务器（Python FastAPI + AG2）
   chat-server:
     build:
       context: .
-      dockerfile: server/Dockerfile
+      dockerfile: backend/Dockerfile
     labels:
       - "dev.orbstack.domains=chat-server.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local"
     restart: unless-stopped
@@ -27,7 +17,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./server/app:/app/app
+      - ./backend/app:/app/app
     mem_limit: 512m
     logging:
       driver: json-file
@@ -39,7 +29,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: packages/web/Dockerfile
+      dockerfile: frontend/Dockerfile
     labels:
       - "dev.orbstack.domains=web.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local"
     restart: unless-stopped

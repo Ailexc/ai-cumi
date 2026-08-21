@@ -1,45 +1,35 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Environment
 .env
 .env.local
+
+# Logs
 *.log
+
+# OS
 .DS_Store
-packages/server/data/
 
-# 本地 OpenClaw 测试实例（含 API key / 引擎源码 / agent 数据，可从云端重同步）
-local/openclaw/
-local/openclaw-cn/
-local/workspace/
-
-# 运行时数据（可从 openclaw.json 重建）
-local/server-data/
-local/audit-log.json
-
-# Python 虚拟环境
-learning/ag2-env/
+# Python
 .venv/
 venv/
-
-# Python 缓存
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
 
-# 数据库文件
+# Database
 *.db
-server/data/
+backend/data/
 
-# AI 生成的废报告（可从代码重建）
-docs/CLEANUP-*.md
-docs/CAPABILITY-GAP-ANALYSIS.md
-docs/TECHNICAL-SELECTION-*.md
-docs/AG2-LEARNING-VALUE-FINAL.md
-
-# 学习笔记（本地笔记，不需要入库）
-learning/AG2-LEARNING-NOTES.md
-learning/requirements.txt
-
-# Docker 构建产物
+# Docker
 .docker/
 docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/

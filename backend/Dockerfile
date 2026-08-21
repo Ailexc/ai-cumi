@@ -4,7 +4,7 @@ FROM python:3.12-slim AS builder
 RUN pip install --no-cache-dir --upgrade pip
 
 WORKDIR /build
-COPY server/requirements.txt .
+COPY backend/requirements.txt .
 RUN pip wheel --no-cache-dir --wheel-dir /build/wheels -r requirements.txt
 
 # ---- Production ----
@@ -17,11 +17,10 @@ WORKDIR /app
 COPY --from=builder /build/wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl
 
-COPY server/app /app/app
-COPY server/run.py /app/run.py
-COPY server/start.sh /app/start.sh
+COPY backend/app /app/app
+COPY backend/run.py /app/run.py
+COPY backend/start.sh /app/start.sh
 
-# Ensure data directory exists for SQLite
 RUN mkdir -p /app/data && chown -R appuser:appuser /app
 
 USER appuser
