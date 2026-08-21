@@ -26,6 +26,7 @@ from .chat.websocket_manager import WebSocketManager
 from .config import settings
 from .database import init_db, get_db
 from .services.model_service import ModelManagementService, ModelKeyEncryptor
+from .services.message_store import save_message, load_history, to_frontend_message
 from . import state
 
 
@@ -356,6 +357,13 @@ async def send_message(message: ChatMessage):
                 agent_id=message.room_id,
                 message=message.content,
             )
+            # Persist user + assistant messages
+            db = next(get_db())
+            try:
+                save_message(db, message.room_id, "user", message.content, agent_id=message.room_id)
+                save_message(db, message.room_id, "assistant", response, agent_id=message.room_id)
+            finally:
+                db.close()
             return {
                 "status": "sent",
                 "response": response,
@@ -371,6 +379,14 @@ async def send_message(message: ChatMessage):
                 message=message.content,
                 mentions=message.mentions,
             )
+            # Persist user + each agent's reply
+            db = next(get_db())
+            try:
+                save_message(db, message.room_id, "user", message.content, agent_id=None)
+                for agent_id, reply in response.items():
+                    save_message(db, message.room_id, "assistant", reply, agent_id=agent_id)
+            finally:
+                db.close()
             return {
                 "status": "sent",
                 "response": response,
@@ -455,7 +471,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Group room: stream each responding agent with its own messageId
                 if group_chat_manager and room_id in group_chat_manager.group_chats:
                     try:
+                        # Persist the user message
+                        db = next(get_db())
+                        try:
+                            save_message(db, room_id, "user", content, agent_id=None)
+                        finally:
+                            db.close()
+                        agent_replies: Dict[str, str] = {}
                         async for agent_id, chunk, message_id in group_chat_manager.stream_send(room_id, content, mentions):
+                            agent_replies[agent_id] = agent_replies.get(agent_id, "") + chunk
                             await ws_manager.send_json(websocket, {
                                 "type": "chat.chunk",
                                 "roomId": room_id,
@@ -463,6 +487,13 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "content": chunk,
                                 "agentId": agent_id,
                             })
+                        # Persist each responding agent's full reply
+                        db = next(get_db())
+                        try:
+                            for agent_id, reply in agent_replies.items():
+                                save_message(db, room_id, "assistant", reply, agent_id=agent_id)
+                        finally:
+                            db.close()
                         # Group streaming is done; no single fullContent — client
                         # accumulates per-message chunks, so omit chat.done.
                     except Exception as e:
@@ -475,6 +506,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif agent_manager and room_id in agent_manager.agents:
                     try:
                         message_id = str(uuid.uuid4())
+                        # Persist the user message
+                        db = next(get_db())
+                        try:
+                            save_message(db, room_id, "user", content, agent_id=room_id)
+                        finally:
+                            db.close()
                         # True streaming: relay token chunks as they arrive
                         chunks = []
                         async for chunk in agent_manager.stream_message(room_id, content):
@@ -489,11 +526,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
                         # Streaming done — send full content so the client can
                         # finalize (and persist / resend) the message.
+                        full_content = "".join(chunks)
+                        # Persist the assistant reply
+                        db = next(get_db())
+                        try:
+                            save_message(db, room_id, "assistant", full_content, agent_id=room_id)
+                        finally:
+                            db.close()
                         await ws_manager.send_json(websocket, {
                             "type": "chat.done",
                             "roomId": room_id,
                             "messageId": message_id,
-                            "fullContent": "".join(chunks),
+                            "fullContent": full_content,
                             "agentId": room_id,
                         })
                     except Exception as e:
@@ -512,11 +556,16 @@ async def websocket_endpoint(websocket: WebSocket):
             
             elif msg_type == "chat.history":
                 room_id = msg.get("roomId", "")
-                # For now, return empty history (DB persistence TODO)
+                # Read history from the messages table
+                db = next(get_db())
+                try:
+                    history = [to_frontend_message(m) for m in load_history(db, room_id, limit=200)]
+                finally:
+                    db.close()
                 await ws_manager.send_json(websocket, {
                     "type": "chat.history",
                     "roomId": room_id,
-                    "messages": [],
+                    "messages": history,
                 })
             
             elif msg_type == "room.create":
