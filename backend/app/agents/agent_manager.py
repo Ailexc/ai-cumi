@@ -20,6 +20,7 @@ P0 streaming API (verified on ag2 1.0.2 / autogen-agentchat 0.7.5):
 
 import asyncio
 import json
+import uuid
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 
@@ -319,6 +320,7 @@ class GroupChatManager:
     async def create_group_chat(
         self,
         room_id: str,
+        name: str,
         agent_ids: List[str],
         owner_agent_id: Optional[str] = None,
     ):
@@ -327,6 +329,7 @@ class GroupChatManager:
 
         Args:
             room_id: Unique identifier for the room
+            name: Display name of the group
             agent_ids: List of agent IDs to include in the group
             owner_agent_id: ID of the owner/default responder agent
         """
@@ -338,12 +341,84 @@ class GroupChatManager:
 
         # Store group chat info
         self.group_chats[room_id] = {
+            "id": room_id,
+            "name": name,
             "agents": valid_agents,
             "owner": owner_agent_id or valid_agents[0],
             "created_at": datetime.now().isoformat(),
         }
 
-        print(f"✅ Created group chat: {room_id} with agents: {valid_agents}")
+        print(f"✅ Created group chat: {room_id} ('{name}') with agents: {valid_agents}")
+
+    async def add_member(self, room_id: str, agent_id: str):
+        """Add an agent to an existing group chat."""
+        if room_id not in self.group_chats:
+            raise ValueError(f"Group chat {room_id} not found")
+        if agent_id not in self.agent_manager.agents:
+            raise ValueError(f"Agent {agent_id} not found")
+        if agent_id not in self.group_chats[room_id]["agents"]:
+            self.group_chats[room_id]["agents"].append(agent_id)
+            print(f"➕ Agent {agent_id} added to group {room_id}")
+
+    async def remove_member(self, room_id: str, agent_id: str):
+        """Remove an agent from an existing group chat."""
+        if room_id not in self.group_chats:
+            raise ValueError(f"Group chat {room_id} not found")
+        agents = self.group_chats[room_id]["agents"]
+        if agent_id in agents:
+            agents.remove(agent_id)
+            print(f"➖ Agent {agent_id} removed from group {room_id}")
+
+    def _resolve_targets(self, room_id: str, mentions: Optional[List[str]]) -> List[str]:
+        """Resolve which agents should respond.
+
+        - If mentions given: only mentioned agents (intersected with members).
+        - Otherwise: only the group owner (值班/默认响应者).
+        """
+        group_info = self.group_chats[room_id]
+        members = group_info["agents"]
+        if mentions:
+            targets = [aid for aid in mentions if aid in members]
+            return targets if targets else members
+        owner = group_info.get("owner")
+        return [owner] if owner and owner in members else members
+
+    def to_room(self, room_id: str) -> Dict[str, Any]:
+        """Build a Room dict (frontend /api/rooms shape) for a group."""
+        info = self.group_chats[room_id]
+        return {
+            "id": room_id,
+            "name": info["name"],
+            "agentId": info["owner"],
+            "type": "group",
+            "createdAt": 0,
+            "ownerAgentId": info["owner"],
+            "memberAgentIds": list(info["agents"]),
+        }
+
+    async def stream_send(
+        self,
+        room_id: str,
+        message: str,
+        mentions: Optional[List[str]] = None,
+    ) -> AsyncGenerator[tuple, None]:
+        """
+        Stream group chat responses. Yields (agent_id, chunk, message_id) tuples.
+
+        Each responding agent gets its own message_id so the frontend can render
+        them as separate messages.
+        """
+        if room_id not in self.group_chats:
+            raise ValueError(f"Group chat {room_id} not found")
+
+        for agent_id in self._resolve_targets(room_id, mentions):
+            message_id = str(uuid.uuid4())
+            try:
+                async for chunk in self.agent_manager.stream_message(agent_id, message):
+                    yield (agent_id, chunk, message_id)
+            except Exception as e:
+                print(f"⚠️ group stream error for {agent_id}: {e}")
+                yield (agent_id, f"[Agent {agent_id} 出错: {e}]", message_id)
 
     async def send_message(
         self,
@@ -352,12 +427,7 @@ class GroupChatManager:
         mentions: Optional[List[str]] = None,
     ) -> Dict[str, str]:
         """
-        Send a message to a group chat.
-
-        Args:
-            room_id: ID of the group room
-            message: Message to send
-            mentions: List of agent IDs to mention
+        Send a message to a group chat and return full responses.
 
         Returns:
             Dictionary mapping agent IDs to their responses
@@ -365,13 +435,7 @@ class GroupChatManager:
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
 
-        group_info = self.group_chats[room_id]
-
-        # Determine target agents
-        if mentions:
-            target_agents = [aid for aid in mentions if aid in self.agent_manager.agents]
-        else:
-            target_agents = list(self.group_chats[room_id]["agents"])
+        target_agents = self._resolve_targets(room_id, mentions)
 
         # Get responses from each agent concurrently
         tasks = [

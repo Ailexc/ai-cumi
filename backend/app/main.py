@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .agents.agent_manager import AgentManager
+from .agents.agent_manager import AgentManager, GroupChatManager
 from .chat.websocket_manager import WebSocketManager
 from .config import settings
 from .database import init_db, get_db
@@ -26,6 +26,7 @@ from .services.model_service import ModelManagementService, ModelKeyEncryptor
 
 # Global instances
 agent_manager: Optional[AgentManager] = None
+group_chat_manager: Optional[GroupChatManager] = None
 ws_manager: Optional[WebSocketManager] = None
 model_encryptor: Optional[ModelKeyEncryptor] = None
 
@@ -33,7 +34,7 @@ model_encryptor: Optional[ModelKeyEncryptor] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global agent_manager, ws_manager, model_encryptor
+    global agent_manager, group_chat_manager, ws_manager, model_encryptor
 
     # Initialize database
     init_db()
@@ -90,6 +91,9 @@ async def lifespan(app: FastAPI):
 
     # Initialize default agents
     await agent_manager.initialize_default_agents()
+
+    # Initialize group chat manager
+    group_chat_manager = GroupChatManager(agent_manager)
 
     print("✅ AiCumi AG2 Backend started successfully")
     print(f"🤖 Agent count: {len(agent_manager.agents)}")
@@ -191,6 +195,37 @@ async def health_check():
     }
 
 
+# ---- Room / Agent list helpers (shared by WS + REST) ----
+
+
+def build_agent_list() -> List[Dict]:
+    """Build agent list payload for the frontend."""
+    if not agent_manager:
+        return []
+    return [
+        {"id": aid, "name": info.get("name", aid), "status": "running"}
+        for aid, info in agent_manager.agents.items()
+    ]
+
+
+def build_room_list() -> List[Dict]:
+    """Build the full room list (DM rooms per agent + group rooms)."""
+    rooms = []
+    if agent_manager:
+        for aid, info in agent_manager.agents.items():
+            rooms.append({
+                "id": aid,
+                "name": info.get("name", aid),
+                "agentId": aid,
+                "type": "dm",
+                "createdAt": 0,
+            })
+    if group_chat_manager:
+        for rid in group_chat_manager.group_chats:
+            rooms.append(group_chat_manager.to_room(rid))
+    return rooms
+
+
 # Agent management endpoints
 @app.post("/api/agents", response_model=AgentResponse)
 async def create_agent(agent_data: AgentCreate):
@@ -288,7 +323,9 @@ async def send_message(message: ChatMessage):
             }
         elif message.room_type == "group":
             # Group chat
-            response = await agent_manager.send_group_message(
+            if not group_chat_manager or message.room_id not in group_chat_manager.group_chats:
+                raise HTTPException(status_code=404, detail=f"Group room {message.room_id} not found")
+            response = await group_chat_manager.send_message(
                 room_id=message.room_id,
                 message=message.content,
                 mentions=message.mentions,
@@ -301,6 +338,8 @@ async def send_message(message: ChatMessage):
             }
         else:
             raise HTTPException(status_code=400, detail=f"Invalid room type: {message.room_type}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -314,64 +353,87 @@ async def websocket_endpoint(websocket: WebSocket):
         return
     
     await ws_manager.connect(websocket)
-    
+
     # Send initial state on connect
     if agent_manager:
-        # agent.list
-        agents = [
-            {"id": aid, "name": info.get("name", aid), "status": "running"}
-            for aid, info in agent_manager.agents.items()
-        ]
-        print(f"📤 Sending agent.list: {len(agents)} agents")
+        agents = build_agent_list()
+        rooms = build_room_list()
+        print(f"📤 Sending agent.list: {len(agents)} agents, room.list: {len(rooms)} rooms")
         await ws_manager.send_json(websocket, {"type": "agent.list", "agents": agents})
-        
-        # room.list (dm rooms for each agent)
-        rooms = [
-            {
-                "id": aid,
-                "name": info.get("name", aid),
-                "agentId": aid,
-                "type": "dm",
-                "createdAt": 0,
-            }
-            for aid, info in agent_manager.agents.items()
-        ]
-        print(f"📤 Sending room.list: {len(rooms)} rooms")
         await ws_manager.send_json(websocket, {"type": "room.list", "rooms": rooms})
-        print(f"📤 Initial messages sent, entering receive loop")
-    
+
     try:
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
             msg_type = msg.get("type")
-            
+
             if msg_type == "ping":
                 await ws_manager.send_json(websocket, {"type": "pong"})
-            
+
             elif msg_type == "room.list":
                 if agent_manager:
-                    rooms = [
-                        {"id": aid, "name": info.get("name", aid), "agentId": aid, "type": "dm", "createdAt": 0}
-                        for aid, info in agent_manager.agents.items()
-                    ]
-                    await ws_manager.send_json(websocket, {"type": "room.list", "rooms": rooms})
-            
+                    await ws_manager.send_json(websocket, {"type": "room.list", "rooms": build_room_list()})
+
             elif msg_type == "agent.list":
                 if agent_manager:
-                    agents = [
-                        {"id": aid, "name": info.get("name", aid), "status": "running"}
-                        for aid, info in agent_manager.agents.items()
-                    ]
-                    await ws_manager.send_json(websocket, {"type": "agent.list", "agents": agents})
-            
+                    await ws_manager.send_json(websocket, {"type": "agent.list", "agents": build_agent_list()})
+
+            elif msg_type == "group.create":
+                # Create a group chat room
+                try:
+                    room_id = "g-" + uuid.uuid4().hex[:8]
+                    await group_chat_manager.create_group_chat(
+                        room_id=room_id,
+                        name=msg.get("name", "新群聊"),
+                        agent_ids=msg.get("memberAgentIds", []),
+                        owner_agent_id=msg.get("ownerAgentId"),
+                    )
+                    await ws_manager.send_json(websocket, {
+                        "type": "room.created",
+                        "room": group_chat_manager.to_room(room_id),
+                    })
+                    print(f"📤 room.created for group {room_id}")
+                except Exception as e:
+                    await ws_manager.send_json(websocket, {"type": "chat.error", "roomId": "", "error": f"创建群聊失败: {e}"})
+
+            elif msg_type == "group.add-member":
+                room_id = msg.get("roomId", "")
+                agent_id = msg.get("agentId", "")
+                try:
+                    await group_chat_manager.add_member(room_id, agent_id)
+                    await ws_manager.send_json(websocket, {"type": "room.list", "rooms": build_room_list()})
+                except Exception as e:
+                    await ws_manager.send_json(websocket, {"type": "chat.error", "roomId": room_id, "error": str(e)})
+
             elif msg_type == "chat.send":
                 room_id = msg.get("roomId", "")
                 content = msg.get("content", "")
-                message_id = str(uuid.uuid4())
+                mentions = msg.get("mentions")
 
-                if agent_manager and room_id in agent_manager.agents:
+                # Group room: stream each responding agent with its own messageId
+                if group_chat_manager and room_id in group_chat_manager.group_chats:
                     try:
+                        async for agent_id, chunk, message_id in group_chat_manager.stream_send(room_id, content, mentions):
+                            await ws_manager.send_json(websocket, {
+                                "type": "chat.chunk",
+                                "roomId": room_id,
+                                "messageId": message_id,
+                                "content": chunk,
+                                "agentId": agent_id,
+                            })
+                        # Group streaming is done; no single fullContent — client
+                        # accumulates per-message chunks, so omit chat.done.
+                    except Exception as e:
+                        print(f"⚠️ group chat.send error: {e}")
+                        await ws_manager.send_json(websocket, {
+                            "type": "chat.error",
+                            "roomId": room_id,
+                            "error": str(e),
+                        })
+                elif agent_manager and room_id in agent_manager.agents:
+                    try:
+                        message_id = str(uuid.uuid4())
                         # True streaming: relay token chunks as they arrive
                         chunks = []
                         async for chunk in agent_manager.stream_message(room_id, content):
@@ -447,15 +509,8 @@ async def websocket_endpoint(websocket: WebSocket):
 # Room management endpoints
 @app.get("/api/rooms")
 async def list_rooms():
-    """List all rooms."""
-    # TODO: Implement room management
-    return {
-        "rooms": [
-            {"id": "keling", "name": "可灵", "type": "dm", "agent_id": "keling"},
-            {"id": "xiaoyan", "name": "小研", "type": "dm", "agent_id": "xiaoyan"},
-            {"id": "xiaoma", "name": "小码", "type": "dm", "agent_id": "xiaoma"},
-        ]
-    }
+    """List all rooms (DM + group)."""
+    return {"rooms": build_room_list()}
 
 
 @app.post("/api/rooms")
