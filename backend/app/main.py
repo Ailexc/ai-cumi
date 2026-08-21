@@ -34,26 +34,70 @@ model_encryptor: Optional[ModelKeyEncryptor] = None
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     global agent_manager, ws_manager, model_encryptor
-    
+
     # Initialize database
     init_db()
-    
-    # Initialize encryptor (persistent key from env or auto-generated)
+
+    # Initialize encryptor (persistent key from env or auto-generated + persisted)
     master_key = os.getenv("MODEL_MASTER_KEY")
+    if not master_key:
+        from .database import get_or_create_master_key
+        master_key = get_or_create_master_key()
     model_encryptor = ModelKeyEncryptor(master_key=master_key)
-    
-    # Initialize managers (mock mode for development)
-    agent_manager = AgentManager(mock_mode=settings.mock_mode)
+
     ws_manager = WebSocketManager()
-    
+
+    # Initialize agent manager:
+    #   - mock_mode=True  → force mock
+    #   - mock_mode=False/None → auto: real if a default model config exists
+    agent_manager = AgentManager(mock_mode=True)  # start in mock as safe default
+    if settings.mock_mode is not True:
+        db = next(get_db())
+        try:
+            service = ModelManagementService(db, model_encryptor)
+            configs = service.get_all_configs()
+            default = next((c for c in configs if c.default_model), None) or (
+                configs[0] if configs else None
+            )
+            if default:
+                api_key = service.get_decrypted_key(default.id)
+                if api_key:
+                    from .agents.agent_manager import build_model_client
+
+                    client = build_model_client(
+                        provider=default.provider,
+                        model_name=default.model_name,
+                        api_key=api_key,
+                        base_url=default.base_url,
+                    )
+                    agent_manager = AgentManager(mock_mode=False)
+                    agent_manager.set_model_client(client, stream=True)
+                    print(
+                        f"✅ Real mode: default model "
+                        f"{default.provider}/{default.model_name} "
+                        f"({'base_url=' + default.base_url if default.base_url else 'official endpoint'})"
+                    )
+                else:
+                    print("⚠️ Default model found but key cannot be decrypted → mock mode")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"⚠️ Failed to init real agent manager, falling back to mock: {e!r}")
+        finally:
+            db.close()
+    else:
+        print("ℹ️ mock_mode=True → running in MOCK mode")
+
     # Initialize default agents
     await agent_manager.initialize_default_agents()
-    
+
     print("✅ AiCumi AG2 Backend started successfully")
     print(f"🤖 Agent count: {len(agent_manager.agents)}")
-    
+    for aid, info in agent_manager.agents.items():
+        print(f"   - {info['name']} ({aid}) [{info['mode']}]")
+
     yield
-    
+
     # Cleanup
     if agent_manager:
         await agent_manager.cleanup()
@@ -325,28 +369,37 @@ async def websocket_endpoint(websocket: WebSocket):
                 room_id = msg.get("roomId", "")
                 content = msg.get("content", "")
                 message_id = str(uuid.uuid4())
-                
+
                 if agent_manager and room_id in agent_manager.agents:
-                    # Simulate streaming: send chunks, then done
-                    response = await agent_manager.send_message(room_id, content)
-                    
-                    # Send as a single chunk (simulating streaming)
-                    await ws_manager.send_json(websocket, {
-                        "type": "chat.chunk",
-                        "roomId": room_id,
-                        "messageId": message_id,
-                        "content": response,
-                        "agentId": room_id,
-                    })
-                    
-                    # Send done
-                    await ws_manager.send_json(websocket, {
-                        "type": "chat.done",
-                        "roomId": room_id,
-                        "messageId": message_id,
-                        "fullContent": response,
-                        "agentId": room_id,
-                    })
+                    try:
+                        # True streaming: relay token chunks as they arrive
+                        chunks = []
+                        async for chunk in agent_manager.stream_message(room_id, content):
+                            chunks.append(chunk)
+                            await ws_manager.send_json(websocket, {
+                                "type": "chat.chunk",
+                                "roomId": room_id,
+                                "messageId": message_id,
+                                "content": chunk,
+                                "agentId": room_id,
+                            })
+
+                        # Streaming done — send full content so the client can
+                        # finalize (and persist / resend) the message.
+                        await ws_manager.send_json(websocket, {
+                            "type": "chat.done",
+                            "roomId": room_id,
+                            "messageId": message_id,
+                            "fullContent": "".join(chunks),
+                            "agentId": room_id,
+                        })
+                    except Exception as e:
+                        print(f"⚠️ chat.send error for {room_id}: {e}")
+                        await ws_manager.send_json(websocket, {
+                            "type": "chat.error",
+                            "roomId": room_id,
+                            "error": str(e),
+                        })
                 else:
                     await ws_manager.send_json(websocket, {
                         "type": "chat.error",

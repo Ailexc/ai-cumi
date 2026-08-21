@@ -11,13 +11,15 @@ services:
       - "dev.orbstack.domains=chat-server.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local"
     restart: unless-stopped
     environment:
-      - MOCK_MODE=true
+      # mock_mode 自动检测：默认模型配置存在 → 真实模式；否则 mock
       - HOST=0.0.0.0
       - PORT=8000
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      # SQLite 数据库持久化（模型配置 / 消息 / 成员 / 房间）
+      - ./backend/data:/app/data
     mem_limit: 512m
     logging:
       driver: json-file

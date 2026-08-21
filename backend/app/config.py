@@ -24,9 +24,11 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = None
     default_model: str = "gpt-4o-mini"
     
-    # Mock mode (for development without API keys)
-    # TODO: Will be replaced by model management UI with encrypted key storage
-    mock_mode: bool = True
+    # Mock mode:
+    #   True  → force mock replies (no LLM calls)
+    #   False → require a real model config (agents created with real client)
+    #   None  → auto: real if a default model config exists, else mock
+    mock_mode: Optional[bool] = None
     
     # Database Settings
     database_url: str = "sqlite+aiosqlite:///./data/aicumi.db"

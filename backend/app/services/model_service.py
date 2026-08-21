@@ -11,11 +11,17 @@ from ..models import ModelConfig, ModelProvider, ModelStatus
 
 
 class ModelKeyEncryptor:
-    """Simple symmetric encryption for API keys using Fernet."""
-    
+    """Simple symmetric encryption for API keys using Fernet.
+
+    The master key may be any non-empty string; it is deterministically derived
+    into a valid Fernet key (32 raw bytes, url-safe base64 encoded) so it stays
+    stable across restarts.
+    """
+
     def __init__(self, master_key: Optional[str] = None):
         if master_key:
-            self.key = master_key.encode()[:32].ljust(32, b'0')
+            raw = master_key.encode("utf-8")[:32].ljust(32, b"\x00")
+            self.key = base64.urlsafe_b64encode(raw)
         else:
             self.key = Fernet.generate_key()
         self.fernet = Fernet(self.key)
