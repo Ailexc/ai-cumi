@@ -12,12 +12,21 @@ class Base(DeclarativeBase):
 
 
 class ModelProvider(str, enum.Enum):
-    """LLM provider types."""
+    """Model provider types."""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
     MISTRAL = "mistral"
     CUSTOM = "custom"
+
+
+class ModelType(str, enum.Enum):
+    """Model capability types."""
+    LLM = "llm"           # 对话/推理
+    EMBEDDING = "embedding"  # 向量化/记忆检索
+    VISION = "vision"     # 图片识别
+    SEARCH = "search"     # 网络搜索
+    CODE = "code"         # 代码执行
 
 
 class ModelStatus(str, enum.Enum):
@@ -29,23 +38,28 @@ class ModelStatus(str, enum.Enum):
 
 # ---- ORM Models ----
 class ModelConfig(Base):
-    """LLM model configuration with encrypted key storage."""
+    """Unified model configuration with encrypted key storage.
+
+    Supports multiple model types: LLM, Embedding, Vision, Search, Code.
+    Each type can have one default model.
+    """
     __tablename__ = "model_configs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # Provider info
-    provider = Column(String(50), nullable=False)  # openai, anthropic, etc.
-    model_name = Column(String(100), nullable=False)  # gpt-4o, claude-3-opus, etc.
+    # Model type and provider
+    model_type = Column(String(20), nullable=False, default="llm")  # llm/embedding/vision/search/code
+    provider = Column(String(50), nullable=False)  # openai, anthropic, custom, etc.
+    model_name = Column(String(100), nullable=False)  # gpt-4o, text-embedding-3-small, etc.
     
     # API credentials (encrypted)
     api_key_encrypted = Column(Text, nullable=False)
     
     # Configuration
     base_url = Column(String(500), nullable=True)  # For custom providers
-    default_model = Column(Boolean, default=False)
-    temperature = Column(Float, default=0.7)
-    max_tokens = Column(Integer, default=1024)
+    default_model = Column(Boolean, default=False)  # Default model for this type
+    temperature = Column(Float, nullable=True)  # Only for LLM
+    max_tokens = Column(Integer, nullable=True)  # Only for LLM
     
     # Status
     status = Column(Enum(ModelStatus), default=ModelStatus.ACTIVE)
@@ -56,7 +70,7 @@ class ModelConfig(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self):
-        return f"<ModelConfig(provider='{self.provider}', model_name='{self.model_name}')>"
+        return f"<ModelConfig(type='{self.model_type}', provider='{self.provider}', model='{self.model_name}')>"
 
 
 class Message(Base):
@@ -161,5 +175,50 @@ class ChannelAccount(Base):
     account_id = Column(String(100), nullable=False)
     name = Column(String(100), nullable=True)
     bot_name = Column(String(100), nullable=True)
-    enabled = Column(Boolean, default=True)
+    enabled = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class GroupRoom(Base):
+    """Persisted group chat room metadata."""
+    __tablename__ = "group_rooms"
+
+    room_id = Column(String(50), primary_key=True)
+    name = Column(String(100), nullable=False)
+    owner_agent_id = Column(String(50), nullable=True)
+    member_agent_ids = Column(Text, nullable=False)  # JSON array of agent IDs
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ---- P2: Workflow definitions & runs ----
+
+class WorkflowDef(Base):
+    """Persisted workflow definition (DAG of nodes + edges)."""
+    __tablename__ = "workflow_defs"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    definition_json = Column(Text, nullable=False)  # {"nodes": [...], "edges": [...]}
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class WorkflowRun(Base):
+    """Persisted workflow execution record (history for learning/debug)."""
+    __tablename__ = "workflow_runs"
+
+    id = Column(String(50), primary_key=True)
+    workflow_id = Column(String(50), index=True, nullable=False)
+    workflow_name = Column(String(200), nullable=True)
+    definition_json = Column(Text, nullable=True)  # definition snapshot at run time
+    status = Column(String(20), nullable=False, default="pending")  # running/completed/failed/cancelled
+    input_data = Column(Text, nullable=True)
+    output_data = Column(Text, nullable=True)
+    steps_json = Column(Text, nullable=True)  # node statuses after the run
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

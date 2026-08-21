@@ -1,0 +1,349 @@
+"""
+Vector Memory System for AiCumi
+
+Provides long-term memory capabilities using vector embeddings for semantic search.
+"""
+
+import os
+import json
+import uuid
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+from dataclasses import dataclass, field, asdict
+
+# Try to import chromadb, fallback to in-memory if not available
+try:
+    import chromadb
+    from chromadb.config import Settings
+    HAS_CHROMADB = True
+except ImportError:
+    HAS_CHROMADB = False
+
+# Try to import openai for embeddings
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
+
+@dataclass
+class MemoryEntry:
+    """A single memory entry."""
+    id: str
+    content: str
+    agent_id: str
+    memory_type: str  # "conversation", "fact", "preference", "task"
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+    embedding: Optional[List[float]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "content": self.content,
+            "agent_id": self.agent_id,
+            "memory_type": self.memory_type,
+            "metadata": self.metadata,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+class VectorMemory:
+    """Vector-based memory system with semantic search."""
+    
+    def __init__(
+        self,
+        persist_dir: str = "data/memory",
+        embedding_model: str = "text-embedding-3-small",
+        collection_name: str = "agent_memory",
+        model_service=None,
+    ):
+        self.persist_dir = persist_dir
+        self.embedding_model = embedding_model
+        self.collection_name = collection_name
+        self._client = None
+        self._collection = None
+        self._openai_client = None
+        self._in_memory_store: List[MemoryEntry] = []
+        self._model_service = model_service
+        
+        # Initialize
+        self._init_chromadb()
+        self._init_embedding()
+    
+    def _init_chromadb(self):
+        """Initialize ChromaDB client."""
+        if not HAS_CHROMADB:
+            print("⚠️ ChromaDB not available, using in-memory store")
+            return
+        
+        try:
+            os.makedirs(self.persist_dir, exist_ok=True)
+            self._client = chromadb.PersistentClient(
+                path=self.persist_dir,
+                settings=Settings(anonymized_telemetry=False),
+            )
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
+            print(f"✅ ChromaDB initialized: {self.persist_dir}")
+        except Exception as e:
+            print(f"⚠️ ChromaDB initialization failed: {e}")
+            self._client = None
+            self._collection = None
+    
+    def _init_embedding(self):
+        """Initialize embedding client from model service or environment."""
+        # Try model service first (unified config)
+        if self._model_service:
+            try:
+                embedding_config = self._model_service.get_default_embedding()
+                if embedding_config:
+                    api_key = self._model_service.get_decrypted_key(embedding_config.id)
+                    if api_key:
+                        kwargs = {"api_key": api_key}
+                        if embedding_config.base_url:
+                            kwargs["base_url"] = embedding_config.base_url
+                        self._openai_client = OpenAI(**kwargs)
+                        self.embedding_model = embedding_config.model_name
+                        print(f"✅ Embedding from config: {embedding_config.provider}/{self.embedding_model}")
+                        return
+            except Exception as e:
+                print(f"⚠️ Failed to load embedding from config: {e}")
+        
+        # Fallback to environment variables
+        api_key = os.getenv("OPENAI_API_KEY")
+        base_url = os.getenv("OPENAI_BASE_URL")
+        
+        if api_key:
+            kwargs = {"api_key": api_key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            self._openai_client = OpenAI(**kwargs)
+            print(f"✅ Embedding from env: {self.embedding_model}")
+        else:
+            print("⚠️ No embedding config found, using keyword fallback")
+    
+    def _get_embedding(self, text: str) -> Optional[List[float]]:
+        """Get embedding for text."""
+        if not self._openai_client:
+            return None
+        
+        try:
+            response = self._openai_client.embeddings.create(
+                model=self.embedding_model,
+                input=text,
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"⚠️ Embedding failed: {e}")
+            return None
+    
+    def add(
+        self,
+        content: str,
+        agent_id: str,
+        memory_type: str = "conversation",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> MemoryEntry:
+        """Add a new memory entry."""
+        entry = MemoryEntry(
+            id=str(uuid.uuid4()),
+            content=content,
+            agent_id=agent_id,
+            memory_type=memory_type,
+            metadata=metadata or {},
+            created_at=datetime.now().isoformat(),
+            updated_at=datetime.now().isoformat(),
+        )
+        
+        # Get embedding
+        embedding = self._get_embedding(content)
+        entry.embedding = embedding
+        
+        # Store in ChromaDB if available
+        if self._collection and embedding:
+            try:
+                self._collection.add(
+                    ids=[entry.id],
+                    documents=[content],
+                    embeddings=[embedding],
+                    metadatas=[{
+                        "agent_id": agent_id,
+                        "memory_type": memory_type,
+                        "created_at": entry.created_at,
+                        **(metadata or {}),
+                    }],
+                )
+            except Exception as e:
+                print(f"⚠️ ChromaDB add failed: {e}")
+        
+        # Always store in memory as backup
+        self._in_memory_store.append(entry)
+        
+        return entry
+    
+    def search(
+        self,
+        query: str,
+        agent_id: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        n_results: int = 5,
+    ) -> List[MemoryEntry]:
+        """Search memories by semantic similarity."""
+        # Try ChromaDB first
+        if self._collection:
+            try:
+                # Build filter
+                where_filter = {}
+                if agent_id:
+                    where_filter["agent_id"] = agent_id
+                if memory_type:
+                    where_filter["memory_type"] = memory_type
+                
+                # Get embedding for query
+                query_embedding = self._get_embedding(query)
+                if query_embedding:
+                    results = self._collection.query(
+                        query_embeddings=[query_embedding],
+                        n_results=n_results,
+                        where=where_filter if where_filter else None,
+                    )
+                    
+                    # Convert to MemoryEntry objects
+                    entries = []
+                    for i, doc_id in enumerate(results["ids"][0]):
+                        metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                        entries.append(MemoryEntry(
+                            id=doc_id,
+                            content=results["documents"][0][i],
+                            agent_id=metadata.get("agent_id", ""),
+                            memory_type=metadata.get("memory_type", "conversation"),
+                            metadata=metadata,
+                            created_at=metadata.get("created_at", ""),
+                        ))
+                    
+                    return entries
+            except Exception as e:
+                print(f"⚠️ ChromaDB search failed: {e}")
+        
+        # Fallback to in-memory search
+        return self._in_memory_search(query, agent_id, memory_type, n_results)
+    
+    def _in_memory_search(
+        self,
+        query: str,
+        agent_id: Optional[str],
+        memory_type: Optional[str],
+        n_results: int,
+    ) -> List[MemoryEntry]:
+        """Simple in-memory search fallback."""
+        results = []
+        query_lower = query.lower()
+        
+        for entry in self._in_memory_store:
+            # Filter by agent_id
+            if agent_id and entry.agent_id != agent_id:
+                continue
+            # Filter by memory_type
+            if memory_type and entry.memory_type != memory_type:
+                continue
+            
+            # Simple keyword matching (no embeddings)
+            if query_lower in entry.content.lower():
+                results.append(entry)
+        
+        return results[:n_results]
+    
+    def get_by_agent(self, agent_id: str, limit: int = 50) -> List[MemoryEntry]:
+        """Get all memories for an agent."""
+        if self._collection:
+            try:
+                results = self._collection.get(
+                    where={"agent_id": agent_id},
+                    limit=limit,
+                )
+                
+                entries = []
+                for i, doc_id in enumerate(results["ids"]):
+                    metadata = results["metadatas"][i] if results["metadatas"] else {}
+                    entries.append(MemoryEntry(
+                        id=doc_id,
+                        content=results["documents"][i],
+                        agent_id=metadata.get("agent_id", ""),
+                        memory_type=metadata.get("memory_type", "conversation"),
+                        metadata=metadata,
+                        created_at=metadata.get("created_at", ""),
+                    ))
+                
+                return entries
+            except Exception as e:
+                print(f"⚠️ ChromaDB get failed: {e}")
+        
+        # Fallback
+        return [e for e in self._in_memory_store if e.agent_id == agent_id][:limit]
+    
+    def delete(self, memory_id: str) -> bool:
+        """Delete a memory entry."""
+        if self._collection:
+            try:
+                self._collection.delete(ids=[memory_id])
+            except Exception as e:
+                print(f"⚠️ ChromaDB delete failed: {e}")
+        
+        # Also remove from in-memory store
+        original_len = len(self._in_memory_store)
+        self._in_memory_store = [e for e in self._in_memory_store if e.id != memory_id]
+        return len(self._in_memory_store) < original_len
+    
+    def clear(self, agent_id: Optional[str] = None) -> int:
+        """Clear memories, optionally filtered by agent."""
+        if agent_id:
+            if self._collection:
+                try:
+                    self._collection.delete(where={"agent_id": agent_id})
+                except Exception as e:
+                    print(f"⚠️ ChromaDB clear failed: {e}")
+            
+            original_len = len(self._in_memory_store)
+            self._in_memory_store = [e for e in self._in_memory_store if e.agent_id != agent_id]
+            return original_len - len(self._in_memory_store)
+        else:
+            if self._collection:
+                try:
+                    self._client.delete_collection(self.collection_name)
+                    self._collection = self._client.get_or_create_collection(
+                        name=self.collection_name,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+                except Exception as e:
+                    print(f"⚠️ ChromaDB clear failed: {e}")
+            
+            count = len(self._in_memory_store)
+            self._in_memory_store.clear()
+            return count
+    
+    def stats(self) -> Dict[str, Any]:
+        """Get memory statistics."""
+        chromadb_count = 0
+        if self._collection:
+            try:
+                chromadb_count = self._collection.count()
+            except:
+                pass
+        
+        return {
+            "chromadb_available": self._collection is not None,
+            "embedding_available": self._openai_client is not None,
+            "chromadb_count": chromadb_count,
+            "in_memory_count": len(self._in_memory_store),
+            "persist_dir": self.persist_dir,
+            "embedding_model": self.embedding_model,
+        }
+
+# Note: Global instance is created via init_memory() in __init__.py
+# Do NOT create it here to allow model_service injection

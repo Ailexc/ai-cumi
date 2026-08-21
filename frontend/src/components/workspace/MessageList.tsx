@@ -21,6 +21,8 @@ interface MessageListProps {
   isGroup?: boolean;
   /** 群聊：agentId → 名称映射 */
   agentNameMap?: Map<string, string>;
+  /** 推理模型正在思考中 */
+  isThinking?: boolean;
 }
 
 /** 按时段生成问候语 */
@@ -32,7 +34,7 @@ function greeting(): string {
   return '晚上好，今天想让团队帮你做什么？';
 }
 
-export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected, isGroup, agentNameMap }: MessageListProps) {
+export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected, isGroup, agentNameMap, isThinking }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const memberMeta = useMemberMeta();
@@ -109,6 +111,18 @@ export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvata
               />
             );
           })}
+
+          {/* 推理模型思考中指示器 */}
+          {isThinking && (
+            <div className="flex items-start gap-3">
+              <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm bg-muted px-4 py-3">
+                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
+                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:150ms]" />
+                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:300ms]" />
+                <span className="ml-1 text-sm text-muted-foreground">思考中…</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

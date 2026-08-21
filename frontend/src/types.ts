@@ -7,6 +7,24 @@ export interface Agent {
   status: 'running' | 'stopped';
 }
 
+export interface ToolParameter {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  default?: any;
+  enum?: string[];
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  category: string;
+  parameters: ToolParameter[];
+  enabled: boolean;
+  version: string;
+}
+
 export type RoomType = 'dm' | 'group';
 
 export interface Room {
@@ -44,6 +62,7 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'chat.chunk'; roomId: string; messageId: string; content: string; agentId?: string }
   | { type: 'chat.done'; roomId: string; messageId: string; fullContent: string; agentId?: string }
+  | { type: 'chat.thinking'; roomId: string; messageId: string; agentId?: string }
   | { type: 'chat.error'; roomId: string; error: string }
   | { type: 'chat.history'; roomId: string; messages: { role: string; content: string; timestamp: number; agentId?: string }[] }
   | { type: 'room.created'; room: Room }

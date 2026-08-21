@@ -44,7 +44,7 @@ export function MemberManagement({ members, connected, onAdded }: MemberManageme
       .then((d) => {
         if (!d.ok) return;
         const map: Record<string, string> = {};
-        for (const m of d.members || []) map[m.id] = m.department || '未分组';
+        for (const m of d.members || []) map[m.agentId] = m.department || '未分组';
         setDepartmentMap(map);
       })
       .catch(() => undefined);

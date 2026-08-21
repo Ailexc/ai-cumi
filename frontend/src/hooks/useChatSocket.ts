@@ -29,6 +29,8 @@ interface UseChatSocketReturn {
   messages: Map<string, ChatMessage[]>;
   /** 未读角标（roomId → 条数；只计不在当前房间时到达的 assistant 新消息） */
   unread: Record<string, number>;
+  /** 正在思考中的房间（roomId → true） */
+  thinking: Record<string, boolean>;
   sendMessage: (roomId: string, content: string, mentions?: string[]) => void;
   createRoom: (name: string, agentId: string) => void;
   createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string) => void;
@@ -45,6 +47,7 @@ export function useChatSocket(): UseChatSocketReturn {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [unread, setUnread] = useState<Record<string, number>>({});
+  const [thinking, setThinking] = useState<Record<string, boolean>>({});
   const activeRoomRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -65,6 +68,15 @@ export function useChatSocket(): UseChatSocketReturn {
         setRooms((prev) => [msg.room, ...prev]);
         break;
       case 'chat.chunk': {
+        // Clear thinking indicator when content starts arriving
+        setThinking((t) => {
+          if (t[msg.roomId]) {
+            const next = { ...t };
+            delete next[msg.roomId];
+            return next;
+          }
+          return t;
+        });
         const key = `${msg.roomId}:${msg.messageId}`;
         const isNew = !streamingRef.current.has(key);
         const existing = streamingRef.current.get(key) || '';
@@ -97,6 +109,15 @@ export function useChatSocket(): UseChatSocketReturn {
       }
       case 'chat.done': {
         streamingRef.current.delete(`${msg.roomId}:${msg.messageId}`);
+        // Clear thinking indicator
+        setThinking((t) => {
+          if (t[msg.roomId]) {
+            const next = { ...t };
+            delete next[msg.roomId];
+            return next;
+          }
+          return t;
+        });
         setMessages((prev) => {
           const next = new Map(prev);
           const roomMsgs = next.get(msg.roomId) || [];
@@ -109,7 +130,19 @@ export function useChatSocket(): UseChatSocketReturn {
         });
         break;
       }
+      case 'chat.thinking':
+        setThinking((t) => ({ ...t, [msg.roomId]: true }));
+        break;
       case 'chat.error':
+        // Clear thinking on error too
+        setThinking((t) => {
+          if (t[msg.roomId]) {
+            const next = { ...t };
+            delete next[msg.roomId];
+            return next;
+          }
+          return t;
+        });
         console.error('[chat] error:', msg.error);
         break;
       case 'chat.history': {
@@ -283,6 +316,7 @@ export function useChatSocket(): UseChatSocketReturn {
     agents,
     messages,
     unread,
+    thinking,
     sendMessage,
     createRoom,
     createGroup,

@@ -33,3 +33,6 @@ docker-compose.override.yml
 # IDE
 .vscode/
 .idea/
+
+# TS build info
+*.tsbuildinfo

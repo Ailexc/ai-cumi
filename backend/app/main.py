@@ -10,7 +10,7 @@ import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     #   - mock_mode=True  → force mock
     #   - mock_mode=False/None → auto: real if a default model config exists
     from .agents.agent_manager import build_model_client
-    from .models import MemberProfile
+    from .models import MemberProfile, ModelConfig
 
     agent_manager = AgentManager(mock_mode=True)  # start in mock as safe default
     db = next(get_db())
@@ -122,7 +122,8 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ Failed to re-apply per-agent model bindings: {e}")
 
     # Initialize group chat manager
-    group_chat_manager = GroupChatManager(agent_manager)
+    group_chat_manager = GroupChatManager(agent_manager, db_session_factory=get_db)
+    group_chat_manager.load_persisted_rooms()
     db.close()
 
     # Publish singletons to shared state for API routers
@@ -130,6 +131,28 @@ async def lifespan(app: FastAPI):
     state.group_chat_manager = group_chat_manager
     state.ws_manager = ws_manager
     state.model_encryptor = model_encryptor
+
+    # Initialize memory system with model service
+    try:
+        from .memory import init_memory
+        memory_service = ModelManagementService(db, model_encryptor)
+        init_memory(model_service=memory_service, persist_dir="data/memory")
+        print("✅ Memory system initialized")
+    except Exception as e:
+        print(f"⚠️ Memory system init failed: {e}")
+
+    # ---- Workflow engine: wire real handlers + SQLite persistence ----
+    try:
+        from .workflow import workflow_engine
+        _register_workflow_handlers()
+        workflow_engine.set_db(get_db)
+        workflow_engine.set_ws_notifier(ws_manager.broadcast_json)
+        workflow_engine.load_from_db()
+        print("✅ Workflow engine wired (real handlers + SQLite persistence)")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"⚠️ Workflow engine wiring failed: {e}")
 
     print("✅ AiCumi AG2 Backend started successfully")
     print(f"🤖 Agent count: {len(agent_manager.agents)}")
@@ -197,16 +220,20 @@ class AgentResponse(BaseModel):
 # ---- Model Management Schemas ----
 class ModelConfigCreate(BaseModel):
     """Model configuration creation schema."""
+    model_type: str = "llm"  # llm/embedding/vision/search/code
     provider: str
     model_name: str
     api_key: str
     base_url: Optional[str] = None
     description: Optional[str] = None
     is_default: bool = False
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 class ModelConfigUpdate(BaseModel):
     """Model configuration update schema."""
+    model_type: Optional[str] = None
     provider: Optional[str] = None
     model_name: Optional[str] = None
     api_key: Optional[str] = None
@@ -214,6 +241,8 @@ class ModelConfigUpdate(BaseModel):
     description: Optional[str] = None
     is_default: Optional[bool] = None
     status: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 # Health check endpoint
@@ -514,7 +543,18 @@ async def websocket_endpoint(websocket: WebSocket):
                             db.close()
                         # True streaming: relay token chunks as they arrive
                         chunks = []
+                        thinking_sent = False
                         async for chunk in agent_manager.stream_message(room_id, content):
+                            if chunk == "__THINKING__":
+                                if not thinking_sent:
+                                    thinking_sent = True
+                                    await ws_manager.send_json(websocket, {
+                                        "type": "chat.thinking",
+                                        "roomId": room_id,
+                                        "messageId": message_id,
+                                        "agentId": room_id,
+                                    })
+                                continue
                             chunks.append(chunk)
                             await ws_manager.send_json(websocket, {
                                 "type": "chat.chunk",
@@ -619,13 +659,25 @@ def _model_payload_with_name(config: dict) -> dict:
 
 
 @app.get("/api/models")
-async def list_models(db: Session = Depends(get_db)):
+async def list_models(model_type: Optional[str] = None, db: Session = Depends(get_db)):
     """List all model configurations (API keys are masked)."""
     service = ModelManagementService(db, model_encryptor)
-    configs = service.get_all_configs()
+    configs = service.get_all_configs(model_type=model_type)
     return {
         "ok": True,
         "models": [_model_payload_with_name(service.get_config(c.id)) for c in configs]
+    }
+
+
+@app.get("/api/models/by-type")
+async def list_models_by_type(db: Session = Depends(get_db)):
+    """List all model configurations grouped by type."""
+    service = ModelManagementService(db, model_encryptor)
+    by_type = service.get_all_by_type()
+    return {
+        "ok": True,
+        "models_by_type": by_type,
+        "types": list(by_type.keys()),
     }
 
 
@@ -635,12 +687,15 @@ async def create_model(data: ModelConfigCreate, db: Session = Depends(get_db)):
     service = ModelManagementService(db, model_encryptor)
     try:
         config = service.add_model_config(
+            model_type=data.model_type,
             provider=data.provider,
             model_name=data.model_name,
             api_key=data.api_key,
             base_url=data.base_url,
             description=data.description,
             is_default=data.is_default,
+            temperature=data.temperature,
+            max_tokens=data.max_tokens,
         )
         return service.get_config(config.id)
     except Exception as e:
@@ -721,6 +776,674 @@ async def test_model(model_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         latency = round((time.time() - start) * 1000)
         return {"status": "error", "error": str(e), "latency_ms": latency}
+
+
+# ---- Tool Management API ----
+
+class ToolBindRequest(BaseModel):
+    """Tool binding request schema."""
+    tool_names: List[str]
+
+
+@app.get("/api/tools")
+async def list_tools(category: Optional[str] = None):
+    """List all available tools."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    tools = agent_manager.list_tools(category)
+    return {
+        "ok": True,
+        "tools": tools,
+        "count": len(tools),
+    }
+
+
+@app.get("/api/tools/{tool_name}")
+async def get_tool(tool_name: str):
+    """Get tool details by name."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    tool = agent_manager.get_tool(tool_name)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+    
+    return {"ok": True, "tool": tool}
+
+
+@app.post("/api/tools/{tool_name}/enable")
+async def enable_tool(tool_name: str):
+    """Enable a tool."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    success = agent_manager.enable_tool(tool_name)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+    
+    return {"ok": True, "message": f"Tool '{tool_name}' enabled"}
+
+
+@app.post("/api/tools/{tool_name}/disable")
+async def disable_tool(tool_name: str):
+    """Disable a tool."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    success = agent_manager.disable_tool(tool_name)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+    
+    return {"ok": True, "message": f"Tool '{tool_name}' disabled"}
+
+
+@app.get("/api/agents/{agent_id}/tools")
+async def get_agent_tools(agent_id: str):
+    """Get tools bound to an agent."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    tool_names = agent_manager.get_agent_tools(agent_id)
+    tools = []
+    for name in tool_names:
+        tool = agent_manager.get_tool(name)
+        if tool:
+            tools.append(tool)
+    
+    return {
+        "ok": True,
+        "agent_id": agent_id,
+        "tools": tools,
+        "tool_names": tool_names,
+    }
+
+
+@app.post("/api/agents/{agent_id}/tools")
+async def bind_agent_tools(agent_id: str, request: ToolBindRequest):
+    """Bind tools to an agent."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    success = agent_manager.bind_tools(agent_id, request.tool_names)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    
+    return {
+        "ok": True,
+        "message": f"Tools bound to agent '{agent_id}'",
+        "tool_names": request.tool_names,
+    }
+
+
+@app.delete("/api/agents/{agent_id}/tools")
+async def unbind_agent_tools(agent_id: str):
+    """Unbind all tools from an agent."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    success = agent_manager.unbind_tools(agent_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    
+    return {
+        "ok": True,
+        "message": f"Tools unbound from agent '{agent_id}'",
+    }
+
+
+@app.post("/api/tools/{tool_name}/execute")
+async def execute_tool(tool_name: str, params: Dict[str, Any] = {}):
+    """Execute a tool directly (for testing)."""
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    from .tools.registry import tool_registry
+    
+    try:
+        result = tool_registry.execute(tool_name, **params)
+        return {
+            "ok": True,
+            "tool": tool_name,
+            "result": result,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
+
+
+# ---- Memory API ----
+
+class MemoryAddRequest(BaseModel):
+    """Memory add request schema."""
+    content: str
+    memory_type: str = "conversation"
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class MemorySearchRequest(BaseModel):
+    """Memory search request schema."""
+    query: str
+    n_results: int = 5
+    memory_type: Optional[str] = None
+
+
+@app.get("/api/memory/stats")
+async def get_memory_stats():
+    """Get memory system statistics."""
+    from .memory import vector_memory
+    stats = vector_memory.stats()
+    return {"ok": True, "stats": stats}
+
+
+@app.post("/api/memory/{agent_id}/add")
+async def add_memory(agent_id: str, request: MemoryAddRequest):
+    """Add a memory entry for an agent."""
+    from .memory import vector_memory
+    
+    entry = vector_memory.add(
+        content=request.content,
+        agent_id=agent_id,
+        memory_type=request.memory_type,
+        metadata=request.metadata,
+    )
+    
+    return {"ok": True, "memory": entry.to_dict()}
+
+
+@app.post("/api/memory/{agent_id}/search")
+async def search_memory(agent_id: str, request: MemorySearchRequest):
+    """Search agent memories."""
+    from .memory import vector_memory
+    
+    results = vector_memory.search(
+        query=request.query,
+        agent_id=agent_id,
+        memory_type=request.memory_type,
+        n_results=request.n_results,
+    )
+    
+    return {
+        "ok": True,
+        "results": [r.to_dict() for r in results],
+        "count": len(results),
+    }
+
+
+@app.get("/api/memory/{agent_id}/list")
+async def list_memories(agent_id: str, limit: int = 50):
+    """List all memories for an agent."""
+    from .memory import vector_memory
+    
+    results = vector_memory.get_by_agent(agent_id, limit=limit)
+    
+    return {
+        "ok": True,
+        "memories": [r.to_dict() for r in results],
+        "count": len(results),
+    }
+
+
+@app.delete("/api/memory/{memory_id}")
+async def delete_memory(memory_id: str):
+    """Delete a memory entry."""
+    from .memory import vector_memory
+    
+    success = vector_memory.delete(memory_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    
+    return {"ok": True, "message": "Memory deleted"}
+
+
+@app.post("/api/memory/{agent_id}/clear")
+async def clear_memories(agent_id: str):
+    """Clear all memories for an agent."""
+    from .memory import vector_memory
+    
+    count = vector_memory.clear(agent_id)
+    
+    return {"ok": True, "cleared": count}
+
+
+# ---- Human-in-the-Loop API ----
+
+class ApprovalResolveRequest(BaseModel):
+    """Approval resolve request schema."""
+    status: str  # "approved" or "rejected"
+    response: Optional[str] = None
+
+
+@app.get("/api/approval/pending")
+async def get_pending_approvals(agent_id: Optional[str] = None):
+    """Get pending approval requests."""
+    from .approval import approval_manager
+    
+    requests = approval_manager.get_pending_requests(agent_id)
+    return {
+        "ok": True,
+        "requests": [r.to_dict() for r in requests],
+        "count": len(requests),
+    }
+
+
+@app.get("/api/approval/history")
+async def get_approval_history(agent_id: Optional[str] = None, limit: int = 50):
+    """Get approval history."""
+    from .approval import approval_manager
+    
+    history = approval_manager.get_history(agent_id, limit)
+    return {
+        "ok": True,
+        "history": [r.to_dict() for r in history],
+        "count": len(history),
+    }
+
+
+@app.post("/api/approval/{request_id}/resolve")
+async def resolve_approval(request_id: str, request: ApprovalResolveRequest):
+    """Resolve an approval request."""
+    from .approval import approval_manager, ApprovalStatus
+    
+    status_map = {
+        "approved": ApprovalStatus.APPROVED,
+        "rejected": ApprovalStatus.REJECTED,
+    }
+    
+    status = status_map.get(request.status)
+    if not status:
+        raise HTTPException(status_code=400, detail="Invalid status, use 'approved' or 'rejected'")
+    
+    result = await approval_manager.resolve_request(
+        request_id=request_id,
+        status=status,
+        response=request.response,
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    return {"ok": True, "request": result.to_dict()}
+
+
+@app.get("/api/approval/stats")
+async def get_approval_stats():
+    """Get approval statistics."""
+    from .approval import approval_manager
+    
+    stats = approval_manager.get_stats()
+    return {"ok": True, "stats": stats}
+
+
+# ---- Tracing API ----
+
+@app.get("/api/tracing/stats")
+async def get_tracing_stats():
+    """Get tracing statistics."""
+    from .tracing import tracing_system
+    stats = tracing_system.get_stats()
+    return {"ok": True, "stats": stats}
+
+
+@app.get("/api/tracing/traces")
+async def get_traces(agent_id: Optional[str] = None, limit: int = 50):
+    """Get execution traces."""
+    from .tracing import tracing_system
+    traces = tracing_system.get_traces(agent_id, limit)
+    return {
+        "ok": True,
+        "traces": [t.to_dict() for t in traces],
+        "count": len(traces),
+    }
+
+
+@app.get("/api/tracing/traces/{trace_id}")
+async def get_trace(trace_id: str):
+    """Get a specific trace by ID."""
+    from .tracing import tracing_system
+    trace = tracing_system.get_trace(trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return {"ok": True, "trace": trace.to_dict()}
+
+
+# ---- Workflow API ----
+
+class WorkflowCreateRequest(BaseModel):
+    """Workflow creation request schema (DAG: nodes + edges)."""
+    name: str
+    description: Optional[str] = None
+    nodes: Optional[List[Dict[str, Any]]] = None
+    edges: Optional[List[Dict[str, Any]]] = None
+
+
+class WorkflowUpdateRequest(BaseModel):
+    """Workflow update request schema."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    nodes: Optional[List[Dict[str, Any]]] = None
+    edges: Optional[List[Dict[str, Any]]] = None
+
+
+class WorkflowExecuteRequest(BaseModel):
+    """Workflow execution request schema."""
+    initial_input: Optional[Any] = None
+    background: Optional[bool] = False
+
+
+class WorkflowFromTemplateRequest(BaseModel):
+    """Create a workflow from a built-in template."""
+    template_id: str
+    name: Optional[str] = None
+
+
+# ---- Built-in workflow templates ----
+WORKFLOW_TEMPLATES: List[Dict[str, Any]] = [
+    {
+        "id": "research-report",
+        "name": "调研 → 分析 → 报告",
+        "description": "先搜索信息，再由研究 Agent 分析，最后由报告 Agent 生成报告",
+        "nodes": [
+            {"id": "search", "name": "搜索信息", "node_type": "tool_call",
+             "config": {"tool_name": "web_search",
+                         "params": {"query": "{{ input }}", "num_results": 3}},
+             "position": {"x": 0, "y": 0}},
+            {"id": "analyze", "name": "分析数据", "node_type": "agent_call",
+             "config": {"agent_id": "xiaoyan",
+                         "prompt": "请基于以下搜索材料提炼要点并给出分析：\n{{ input.response }}"},
+             "position": {"x": 320, "y": 0}},
+            {"id": "report", "name": "生成报告", "node_type": "agent_call",
+             "config": {"agent_id": "keling",
+                         "prompt": "请根据分析结果撰写一份结构化报告：\n{{ input.response }}"},
+             "position": {"x": 640, "y": 0}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "search", "target": "analyze"},
+            {"id": "e2", "source": "analyze", "target": "report"},
+        ],
+    },
+    {
+        "id": "content-approval",
+        "name": "内容审核发布",
+        "description": "生成内容 → 敏感判断（条件分支）→ 人工审核 → 发布/拦截",
+        "nodes": [
+            {"id": "gen", "name": "生成内容", "node_type": "agent_call",
+             "config": {"agent_id": "keling",
+                         "prompt": "根据主题写一篇 150 字以内的短文：\n{{ input }}"},
+             "position": {"x": 0, "y": 40}},
+            {"id": "check", "name": "敏感判断", "node_type": "condition",
+             "config": {"expression": "\"敏感\" in data[\"response\"] or \"违规\" in data[\"response\"]"},
+             "position": {"x": 320, "y": 40}},
+            {"id": "review", "name": "人工审核", "node_type": "human_review",
+             "config": {"description": "内容疑似敏感，请人工审核后决定是否发布",
+                         "params": {"action": "publish"}},
+             "position": {"x": 640, "y": -60}},
+            {"id": "pub", "name": "发布", "node_type": "transform",
+             "config": {"template": "✅ 已发布（敏感判断：{{ input.result }}）"},
+             "position": {"x": 960, "y": -60}},
+            {"id": "drop", "name": "拦截", "node_type": "transform",
+             "config": {"template": "⛔ 已拦截（敏感判断：{{ input.result }}）"},
+             "position": {"x": 960, "y": 120}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "gen", "target": "check"},
+            {"id": "e2", "source": "check", "target": "review",
+             "condition": "data[\"result\"] == true"},
+            {"id": "e3", "source": "check", "target": "drop",
+             "condition": "data[\"result\"] == false"},
+            {"id": "e4", "source": "review", "target": "pub"},
+        ],
+    },
+    {
+        "id": "code-review",
+        "name": "代码评审",
+        "description": "生成代码 → 技术评审 → 人工确认 → 输出结论",
+        "nodes": [
+            {"id": "gen", "name": "生成代码", "node_type": "agent_call",
+             "config": {"agent_id": "xiaoma",
+                         "prompt": "根据需求用 Python 写一段示例代码：\n{{ input }}"},
+             "position": {"x": 0, "y": 80}},
+            {"id": "review", "name": "技术评审", "node_type": "agent_call",
+             "config": {"agent_id": "xiaoyan",
+                         "prompt": "请评审以下代码，指出问题与改进建议：\n{{ input.response }}"},
+             "position": {"x": 320, "y": 80}},
+            {"id": "approve", "name": "人工确认", "node_type": "human_review",
+             "config": {"description": "请确认是否认可本次代码评审结论"},
+             "position": {"x": 640, "y": 80}},
+            {"id": "done", "name": "完成", "node_type": "transform",
+             "config": {"template": "✅ 评审通过：{{ input.response }}"},
+             "position": {"x": 960, "y": 80}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "gen", "target": "review"},
+            {"id": "e2", "source": "review", "target": "approve"},
+            {"id": "e3", "source": "approve", "target": "done"},
+        ],
+    },
+]
+
+
+WORKFLOW_TEMPLATE_IDS = {t["id"] for t in WORKFLOW_TEMPLATES}
+
+
+def _register_workflow_handlers():
+    """Wire the workflow engine to the real agent manager, tool registry & HITL."""
+    from .workflow import workflow_engine, StepType, evaluate_condition, render_template, _stringify
+    from .tools.registry import tool_registry
+
+    async def agent_handler(input_data, config):
+        agent_id = config.get("agent_id")
+        if not agent_id:
+            raise ValueError("agent_call 节点缺少 config.agent_id")
+        prompt = config.get("prompt", "")
+        message = _stringify(input_data)
+        if prompt:
+            message = render_template(prompt, input_data, {}) + "\n\n" + message
+        return {"response": await agent_manager.send_message(agent_id, message)}
+
+    async def tool_handler(input_data, config):
+        tool_name = config.get("tool_name")
+        if not tool_name:
+            raise ValueError("tool_call 节点缺少 config.tool_name")
+        params = dict(config.get("params") or {})
+        for k, v in list(params.items()):
+            if isinstance(v, str) and "{{" in v:
+                params[k] = render_template(v, input_data, {})
+        try:
+            result = tool_registry.execute(tool_name, **params)
+        except Exception as e:
+            raise ValueError(f"工具 {tool_name} 执行失败: {e}")
+        return {"result": result, "tool": tool_name, "params": params}
+
+    async def condition_handler(input_data, config):
+        expr = config.get("expression", "data")
+        return {"result": evaluate_condition(expr, input_data, {})}
+
+    async def transform_handler(input_data, config):
+        template = config.get("template")
+        if template:
+            return render_template(template, input_data, {})
+        mapping = config.get("mapping") or {}
+        out = {}
+        for key, tpl in mapping.items():
+            out[key] = render_template(str(tpl), input_data, {}) if isinstance(tpl, str) else tpl
+        return out
+
+    async def human_review_handler(input_data, config):
+        from .approval import approval_manager
+        request = await approval_manager.request_approval(
+            agent_id=config.get("agent_id", "workflow"),
+            action="workflow_step",
+            description=config.get("description", "工作流执行到人工审核节点"),
+            params={"input": input_data, **(config.get("params") or {})},
+            timeout=int(config.get("timeout", 3600)),
+            auto_approve=bool(config.get("auto_approve", False)),
+        )
+        wait_timeout = int(config.get("wait_timeout", 3600))
+        resolved = await approval_manager.wait_for_approval(request.id, timeout=wait_timeout)
+        return {
+            "approval_id": request.id,
+            "status": resolved.status.value,
+            "response": resolved.response,
+        }
+
+    workflow_engine.register_handlers({
+        StepType.AGENT_CALL: agent_handler,
+        StepType.TOOL_CALL: tool_handler,
+        StepType.CONDITION: condition_handler,
+        StepType.TRANSFORM: transform_handler,
+        StepType.HUMAN_REVIEW: human_review_handler,
+    })
+
+
+@app.get("/api/workflows")
+async def list_workflows(limit: int = 100):
+    """List all workflows."""
+    from .workflow import workflow_engine
+    workflows = workflow_engine.get_workflows(limit)
+    return {"ok": True, "workflows": [w.to_dict() for w in workflows], "count": len(workflows)}
+
+
+@app.post("/api/workflows")
+async def create_workflow(request: WorkflowCreateRequest):
+    """Create a new workflow (DAG nodes + edges)."""
+    from .workflow import workflow_engine
+    workflow = workflow_engine.create_workflow(
+        name=request.name,
+        description=request.description or "",
+        nodes=request.nodes,
+        edges=request.edges,
+    )
+    return {"ok": True, "workflow": workflow.to_dict()}
+
+
+@app.put("/api/workflows/{workflow_id}")
+async def update_workflow(workflow_id: str, request: WorkflowUpdateRequest):
+    """Update a workflow definition (edit/save from the visual editor)."""
+    from .workflow import workflow_engine
+    workflow = workflow_engine.update_workflow(
+        workflow_id=workflow_id,
+        name=request.name,
+        description=request.description,
+        nodes=request.nodes,
+        edges=request.edges,
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"ok": True, "workflow": workflow.to_dict()}
+
+
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow(workflow_id: str):
+    """Delete a workflow."""
+    from .workflow import workflow_engine
+    if not workflow_engine.delete_workflow(workflow_id):
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"ok": True, "message": "Workflow deleted"}
+
+
+@app.post("/api/workflows/{workflow_id}/duplicate")
+async def duplicate_workflow(workflow_id: str):
+    """Duplicate a workflow."""
+    from .workflow import workflow_engine
+    workflow = workflow_engine.duplicate_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"ok": True, "workflow": workflow.to_dict()}
+
+
+@app.get("/api/workflow-templates")
+async def list_workflow_templates():
+    """List built-in workflow templates."""
+    return {"ok": True, "templates": WORKFLOW_TEMPLATES, "count": len(WORKFLOW_TEMPLATES)}
+
+
+@app.post("/api/workflows/from-template")
+async def create_from_template(request: WorkflowFromTemplateRequest):
+    """Create a workflow from a built-in template."""
+    from .workflow import workflow_engine
+    template = next((t for t in WORKFLOW_TEMPLATES if t["id"] == request.template_id), None)
+    if not template:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    id_map = {n["id"]: str(uuid.uuid4()) for n in template["nodes"]}
+    nodes = []
+    for n in template["nodes"]:
+        node = dict(n)
+        node["id"] = id_map[node["id"]]
+        nodes.append(node)
+    edges = []
+    for e in template["edges"]:
+        edge = dict(e)
+        edge["id"] = str(uuid.uuid4())
+        edge["source"] = id_map.get(edge["source"], edge["source"])
+        edge["target"] = id_map.get(edge["target"], edge["target"])
+        edges.append(edge)
+    workflow = workflow_engine.create_workflow(
+        name=request.name or template["name"],
+        description=template["description"],
+        nodes=nodes,
+        edges=edges,
+    )
+    return {"ok": True, "workflow": workflow.to_dict()}
+
+
+@app.get("/api/workflows/stats")
+async def get_workflow_stats():
+    """Get workflow statistics."""
+    from .workflow import workflow_engine
+    stats = workflow_engine.get_stats()
+    return {"ok": True, "stats": stats}
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str):
+    """Get a workflow by ID."""
+    from .workflow import workflow_engine
+    workflow = workflow_engine.get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"ok": True, "workflow": workflow.to_dict()}
+
+
+@app.get("/api/workflows/{workflow_id}/runs")
+async def get_workflow_runs(workflow_id: str, limit: int = 50):
+    """Get execution history for a workflow."""
+    from .workflow import workflow_engine
+    runs = workflow_engine.get_runs(workflow_id, limit)
+    return {"ok": True, "runs": [r.to_dict() for r in runs], "count": len(runs)}
+
+
+@app.post("/api/workflows/{workflow_id}/execute")
+async def execute_workflow(workflow_id: str, request: WorkflowExecuteRequest):
+    """Execute a workflow (sync, or background for live progress polling)."""
+    from .workflow import workflow_engine
+    try:
+        if request.background:
+            asyncio.create_task(
+                workflow_engine.execute_workflow(workflow_id, request.initial_input)
+            )
+            return {"ok": True, "background": True,
+                    "message": "工作流已在后台启动，可轮询 /api/workflows/{id} 查看进度"}
+        workflow = await workflow_engine.execute_workflow(
+            workflow_id=workflow_id,
+            initial_input=request.initial_input,
+        )
+        return {"ok": True, "workflow": workflow.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
+
+
+@app.post("/api/workflows/{workflow_id}/cancel")
+async def cancel_workflow(workflow_id: str):
+    """Cancel a running workflow."""
+    from .workflow import workflow_engine
+    success = workflow_engine.cancel_workflow(workflow_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot cancel workflow")
+    return {"ok": True, "message": "Workflow cancelled"}
 
 
 if __name__ == "__main__":

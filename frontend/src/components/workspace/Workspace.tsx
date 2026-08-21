@@ -16,11 +16,15 @@ import { Composer } from './Composer';
 import { MemberManagement } from './MemberManagement';
 import { ChannelWizard } from './ChannelWizard';
 import { ModelManagement } from './ModelManagement';
+import { ToolPanel } from './ToolPanel';
+import { ApprovalPanel } from './ApprovalPanel';
+import { TracingPanel } from './TracingPanel';
+import { WorkflowPanel } from './WorkflowPanel';
 import { getAgentMeta, formatTime, truncate } from './agentMeta';
 import type { Conv } from './Sidebar';
 
 export function Workspace() {
-  const { connected, rooms, agents, messages, sendMessage, loadHistory, refreshRooms, unread, setActiveRoom, createGroup } =
+  const { connected, rooms, agents, messages, sendMessage, loadHistory, refreshRooms, unread, thinking, setActiveRoom, createGroup } =
     useChatSocket();
   const memberMeta = useMemberMeta(); // agentId → {role, avatar}（后端下发，覆盖前端常量）
   const [activeNav, setActiveNav] = useState('chat'); // 'chat' | 'members' | 未来扩展
@@ -146,7 +150,7 @@ export function Workspace() {
       <AppRail
         active={activeNav}
         onSelect={(id) => {
-          if (id === 'chat' || id === 'members' || id === 'channels' || id === 'models') setActiveNav(id);
+          if (id === 'chat' || id === 'members' || id === 'channels' || id === 'models' || id === 'tools' || id === 'approval' || id === 'tracing' || id === 'workflows') setActiveNav(id);
           setRosterOpen(false);
         }}
         onPlanned={(label) => showToast(`${label} · 规划中，敬请期待`)}
@@ -165,6 +169,26 @@ export function Workspace() {
       ) : activeNav === 'models' ? (
         /* ===== 模型管理 ===== */
         <ModelManagement />
+      ) : activeNav === 'tools' ? (
+        /* ===== 工具箱 ===== */
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <ToolPanel agentId={activeRoom?.agentId} agentName={activeTitle} />
+        </div>
+      ) : activeNav === 'approval' ? (
+        /* ===== 审批面板 ===== */
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <ApprovalPanel />
+        </div>
+      ) : activeNav === 'tracing' ? (
+        /* ===== 追踪面板 ===== */
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <TracingPanel />
+        </div>
+      ) : activeNav === 'workflows' ? (
+        /* ===== 工作流面板 ===== */
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <WorkflowPanel />
+        </div>
       ) : (
         /* ===== 消息视图：我的团队 + 聊天窗 ===== */
         <>
@@ -197,6 +221,7 @@ export function Workspace() {
               connected={connected}
               isGroup={isGroupChat}
               agentNameMap={agentName}
+              isThinking={activeRoomId ? !!thinking[activeRoomId] : false}
             />
 
             <Composer

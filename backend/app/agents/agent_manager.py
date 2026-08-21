@@ -35,6 +35,10 @@ try:
 except ImportError:
     HAS_REAL_AGENT = False
 
+# Import tool registry
+from ..tools.registry import tool_registry
+from ..tools.builtin import register_builtin_tools
+
 
 # Default model info for unknown/custom model names (used when the client cannot
 # resolve model_info automatically, e.g. self-hosted / fake endpoints).
@@ -112,6 +116,9 @@ class AgentManager:
         self.model_client_stream: bool = True
         self.agent_model_clients: Dict[str, Any] = {}  # per-agent model client override
 
+        # Initialize built-in tools
+        register_builtin_tools()
+
         # Persona templates (for display/UI reference)
         self.persona_templates = {
             "assistant": "你是一个贴心的助理，善于理解用户需求，提供周到的服务。",
@@ -128,18 +135,21 @@ class AgentManager:
                 "role": "前台秘书",
                 "persona": "你是可灵，一个贴心的前台秘书。你善于理解用户需求，提供周到的服务。你说话温和友善，总是面带微笑。",
                 "template": "assistant",
+                "tools": ["web_search", "datetime_utils"],
             },
             "xiaoyan": {
                 "name": "小研",
                 "role": "调研专员",
                 "persona": "你是小研，一个专业的调研专员。你善于收集和分析信息，提供深入的研究报告。你说话严谨专业，注重数据和事实。",
                 "template": "advisor",
+                "tools": ["web_search", "json_parse", "datetime_utils"],
             },
             "xiaoma": {
                 "name": "小码",
                 "role": "技术专家",
                 "persona": "你是小码，一个技术专家。你善于解决技术问题，提供代码示例和技术建议。你说话直接明了，注重效率。",
                 "template": "direct",
+                "tools": ["code_execute", "file_read", "file_write", "json_parse"],
             },
         }
 
@@ -168,12 +178,20 @@ class AgentManager:
         )
         if not use_real:
             return None
+        
+        # Get tools for this agent
+        agent_tools = []
+        tool_names = info.get("tools", [])
+        if tool_names and HAS_REAL_AGENT:
+            agent_tools = tool_registry.get_ag2_tools(tool_names)
+        
         return AssistantAgent(
             name=agent_id,
             model_client=client,
             model_client_stream=self.model_client_stream,
             system_message=info.get("persona") or "",
             description=f"{info.get('name', agent_id)} - {info.get('role', 'assistant')}",
+            tools=agent_tools if agent_tools else [],
         )
 
     async def rebuild_agent(self, agent_id: str) -> Optional[Any]:
@@ -229,6 +247,7 @@ class AgentManager:
                 name=agent_config["name"],
                 persona=agent_config["persona"],
                 role=agent_config["role"],
+                tools=agent_config.get("tools", []),
             )
 
     async def create_agent(
@@ -304,7 +323,12 @@ class AgentManager:
         return await self._mock_respond(agent_id, message)
 
     async def stream_message(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
-        """Stream an agent's response as token chunks (for WebSocket)."""
+        """Stream an agent's response as token chunks (for WebSocket).
+
+        Yields "__THINKING__" sentinel when the model enters a reasoning/thinking
+        phase (before any real content is emitted). The WS handler should translate
+        this into a chat.thinking event for the frontend.
+        """
         if agent_id not in self.agents:
             raise ValueError(f"Agent {agent_id} not found")
 
@@ -392,6 +416,7 @@ class AgentManager:
                     if content.startswith(" thinking"):
                         # AG2 reasoning-content path — drop until " response".
                         in_reasoning = True
+                        yield "__THINKING__"
                         content = content[len(" thinking"):]
                     # else: normal model (or inline <think> handled below)
 
@@ -401,6 +426,10 @@ class AgentManager:
                         content = content[len(" response"):]
                     else:
                         continue  # drop reasoning
+
+                # Emit thinking indicator on first <think> tag
+                if content and "<think>" in content and not tag_state["open"]:
+                    yield "__THINKING__"
 
                 if content and (tag_state["open"] or "<think>" in content or "</think>" in content):
                     content = self._strip_reasoning_chunk(content, tag_state)
@@ -414,11 +443,30 @@ class AgentManager:
             yield f"\n\n[Agent 调用出错: {type(e).__name__}: {e}]"
 
     async def _real_respond(self, agent_id: str, message: str) -> str:
-        """Send message to a real AG2 agent and return the full reply."""
-        parts = []
-        async for chunk in self._real_stream(agent_id, message):
-            parts.append(chunk)
-        return "".join(parts) if parts else ""
+        """Send message to a real AG2 agent and return the full reply.
+
+        Uses the final `Response` event from `on_messages_stream` — AG2 separates
+        reasoning from the answer, so no manual thinking-stripping is needed and
+        the answer is never swallowed by reasoning-format edge cases.
+        (Detected via duck-typing: the final response event exposes `chat_message`.)
+        """
+        agent = self.agent_instances.get(agent_id)
+        if agent is None:
+            return f"[Agent {agent_id} 未初始化]"
+        try:
+            async for event in agent.on_messages_stream(
+                [TextMessage(content=message, source="user")],
+                CancellationToken(),
+            ):
+                if isinstance(event, ModelClientStreamingChunkEvent):
+                    continue
+                if hasattr(event, "chat_message"):
+                    content = getattr(event.chat_message, "content", "") or ""
+                    return str(content).strip()
+        except Exception as e:
+            print(f"⚠️ real respond error for {agent_id}: {e}")
+            return f"[Agent 调用出错: {type(e).__name__}: {e}]"
+        return ""
 
     async def _mock_respond(self, agent_id: str, message: str) -> str:
         """Generate mock response based on agent persona."""
@@ -440,13 +488,137 @@ class AgentManager:
         self.agents.clear()
         self.agent_instances.clear()
 
+    # ---- Tool Management ----
+
+    def list_tools(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List available tools."""
+        tools = tool_registry.list_tools(category)
+        return [t.to_dict() for t in tools]
+
+    def get_tool(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get tool details by name."""
+        tool = tool_registry.get(name)
+        return tool.to_dict() if tool else None
+
+    def bind_tools(self, agent_id: str, tool_names: List[str]) -> bool:
+        """Bind tools to an agent."""
+        if agent_id not in self.agents:
+            return False
+        
+        # Validate tool names
+        valid_tools = []
+        for name in tool_names:
+            if tool_registry.get(name):
+                valid_tools.append(name)
+        
+        self.agents[agent_id]["tools"] = valid_tools
+        # Rebuild agent with new tools
+        asyncio.create_task(self.rebuild_agent(agent_id))
+        return True
+
+    def unbind_tools(self, agent_id: str) -> bool:
+        """Unbind all tools from an agent."""
+        if agent_id not in self.agents:
+            return False
+        
+        self.agents[agent_id]["tools"] = []
+        asyncio.create_task(self.rebuild_agent(agent_id))
+        return True
+
+    def get_agent_tools(self, agent_id: str) -> List[str]:
+        """Get tool names bound to an agent."""
+        if agent_id not in self.agents:
+            return []
+        return self.agents[agent_id].get("tools", [])
+
+    def enable_tool(self, name: str) -> bool:
+        """Enable a tool."""
+        return tool_registry.enable(name)
+
+    def disable_tool(self, name: str) -> bool:
+        """Disable a tool."""
+        return tool_registry.disable(name)
+
 
 class GroupChatManager:
     """Manages group chats between agents."""
 
-    def __init__(self, agent_manager: AgentManager):
+    def __init__(self, agent_manager: AgentManager, db_session_factory=None):
         self.agent_manager = agent_manager
         self.group_chats: Dict[str, Dict[str, Any]] = {}
+        self._db_factory = db_session_factory
+
+    def _persist_room(self, room_id: str):
+        """Save or update a group room in the database."""
+        if not self._db_factory:
+            return
+        import json
+        from ..models import GroupRoom
+        info = self.group_chats[room_id]
+        db = next(self._db_factory())
+        try:
+            existing = db.get(GroupRoom, room_id)
+            if existing:
+                existing.name = info["name"]
+                existing.owner_agent_id = info["owner"]
+                existing.member_agent_ids = json.dumps(info["agents"])
+            else:
+                db.add(GroupRoom(
+                    room_id=room_id,
+                    name=info["name"],
+                    owner_agent_id=info["owner"],
+                    member_agent_ids=json.dumps(info["agents"]),
+                ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"⚠️ Failed to persist group room {room_id}: {e}")
+        finally:
+            db.close()
+
+    def _delete_room(self, room_id: str):
+        """Remove a group room from the database."""
+        if not self._db_factory:
+            return
+        from ..models import GroupRoom
+        db = next(self._db_factory())
+        try:
+            existing = db.get(GroupRoom, room_id)
+            if existing:
+                db.delete(existing)
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"⚠️ Failed to delete group room {room_id}: {e}")
+        finally:
+            db.close()
+
+    def load_persisted_rooms(self):
+        """Load group rooms from the database on startup."""
+        if not self._db_factory:
+            return
+        import json
+        from ..models import GroupRoom
+        db = next(self._db_factory())
+        try:
+            rows = db.query(GroupRoom).all()
+            for row in rows:
+                agents = json.loads(row.member_agent_ids)
+                # Only restore if at least one agent still exists
+                valid_agents = [a for a in agents if a in self.agent_manager.agents]
+                if valid_agents:
+                    self.group_chats[row.room_id] = {
+                        "id": row.room_id,
+                        "name": row.name,
+                        "agents": valid_agents,
+                        "owner": row.owner_agent_id or valid_agents[0],
+                        "created_at": row.created_at.isoformat() if row.created_at else "",
+                    }
+                    print(f"📂 Restored group room: {row.room_id} ('{row.name}')")
+        except Exception as e:
+            print(f"⚠️ Failed to load group rooms: {e}")
+        finally:
+            db.close()
 
     async def create_group_chat(
         self,
@@ -478,6 +650,8 @@ class GroupChatManager:
             "owner": owner_agent_id or valid_agents[0],
             "created_at": datetime.now().isoformat(),
         }
+        # Persist to database
+        self._persist_room(room_id)
 
         print(f"✅ Created group chat: {room_id} ('{name}') with agents: {valid_agents}")
 
@@ -489,6 +663,7 @@ class GroupChatManager:
             raise ValueError(f"Agent {agent_id} not found")
         if agent_id not in self.group_chats[room_id]["agents"]:
             self.group_chats[room_id]["agents"].append(agent_id)
+            self._persist_room(room_id)
             print(f"➕ Agent {agent_id} added to group {room_id}")
 
     async def remove_member(self, room_id: str, agent_id: str):
@@ -498,6 +673,7 @@ class GroupChatManager:
         agents = self.group_chats[room_id]["agents"]
         if agent_id in agents:
             agents.remove(agent_id)
+            self._persist_room(room_id)
             print(f"➖ Agent {agent_id} removed from group {room_id}")
 
     def _resolve_targets(self, room_id: str, mentions: Optional[List[str]]) -> List[str]:

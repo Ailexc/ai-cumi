@@ -10,6 +10,7 @@ export interface AgentMeta {
 export const AGENT_META: Record<string, AgentMeta> = {
   keling: { avatar: '/avatars/avatar-keling.jpg', role: '前台秘书', status: 'online' },
   xiaoyan: { avatar: '/avatars/avatar-xiaoyan.jpg', role: '调研专员', status: 'online' },
+  xiaoma: { avatar: '/avatars/avatar-xiaoma.jpg', role: '技术专家', status: 'online' },
   xiaowen: { avatar: '/avatars/avatar-xiaowen.jpg', role: '内容运营', status: 'busy' },
   // 后端 agentId 别名 → 同一员工
   'staff-dde57f': { avatar: '/avatars/avatar-xiaowen.jpg', role: '内容运营', status: 'busy' },

@@ -12,6 +12,10 @@ websockets
 sqlalchemy
 aiosqlite
 
+# Memory and Embeddings
+chromadb
+openai
+
 # Utilities
 python-dotenv
 pydantic

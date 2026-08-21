@@ -1,13 +1,17 @@
 """
-AI Model Management Service with encrypted key storage.
+Unified Model Management Service for AiCumi.
+
+Supports multiple model types: LLM, Embedding, Vision, Search, Code.
+All credentials are encrypted and stored centrally.
 """
+
 import base64
 import hashlib
-import hmac
 from typing import Optional, List, Dict, Any
 from cryptography.fernet import Fernet
 from sqlalchemy.orm import Session
-from ..models import ModelConfig, ModelProvider, ModelStatus
+from sqlalchemy import and_
+from ..models import ModelConfig, ModelType, ModelStatus
 
 
 class ModelKeyEncryptor:
@@ -38,7 +42,11 @@ class ModelKeyEncryptor:
 
 
 class ModelManagementService:
-    """Manages AI model configurations with secure credential storage."""
+    """Unified model management service.
+
+    Manages all model types: LLM, Embedding, Vision, Search, Code.
+    Each type can have one default model.
+    """
     
     def __init__(self, db_session: Session, encryptor: Optional[ModelKeyEncryptor] = None):
         self.db = db_session
@@ -46,19 +54,25 @@ class ModelManagementService:
     
     def add_model_config(
         self,
+        model_type: str,
         provider: str,
         model_name: str,
         api_key: str,
         base_url: Optional[str] = None,
         description: Optional[str] = None,
         is_default: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ) -> ModelConfig:
         """Add new model configuration with encrypted API key."""
-        # Set default model if requested
+        # Set default model for this type if requested
         if is_default:
-            self.db.query(ModelConfig).filter_by(default_model=True).update({"default_model": False})
+            self.db.query(ModelConfig).filter(
+                and_(ModelConfig.model_type == model_type, ModelConfig.default_model == True)
+            ).update({"default_model": False})
         
         config = ModelConfig(
+            model_type=model_type,
             provider=provider,
             model_name=model_name,
             api_key_encrypted=self.encryptor.encrypt(api_key),
@@ -66,6 +80,8 @@ class ModelManagementService:
             default_model=is_default,
             status=ModelStatus.ACTIVE,
             description=description,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         self.db.add(config)
         self.db.commit()
@@ -82,6 +98,16 @@ class ModelManagementService:
         if not config:
             return None
         
+        # If setting as default, unset other defaults of the same type
+        if kwargs.get("default_model"):
+            self.db.query(ModelConfig).filter(
+                and_(
+                    ModelConfig.model_type == config.model_type,
+                    ModelConfig.id != config_id,
+                    ModelConfig.default_model == True,
+                )
+            ).update({"default_model": False})
+        
         for key, value in kwargs.items():
             if hasattr(config, key):
                 setattr(config, key, value)
@@ -90,12 +116,14 @@ class ModelManagementService:
         self.db.refresh(config)
         return config
     
-    def get_all_configs(self, status: Optional[str] = None) -> List[ModelConfig]:
-        """Get all model configurations (with decrypted keys for internal use only)."""
+    def get_all_configs(self, model_type: Optional[str] = None, status: Optional[str] = None) -> List[ModelConfig]:
+        """Get all model configurations."""
         query = self.db.query(ModelConfig)
+        if model_type:
+            query = query.filter(ModelConfig.model_type == model_type)
         if status:
             query = query.filter(ModelConfig.status == status)
-        return query.all()
+        return query.order_by(ModelConfig.model_type, ModelConfig.default_model.desc()).all()
     
     def get_config(self, config_id: int) -> Optional[Dict[str, Any]]:
         """Get single model config with sensitive info stripped."""
@@ -103,20 +131,33 @@ class ModelManagementService:
         if not config:
             return None
         
-        return {
-            "id": config.id,
-            "provider": config.provider,
-            "model_name": config.model_name,
-            "api_key_hash": self.encryptor.hash_api_key_for_display(
-                self.encryptor.decrypt(config.api_key_encrypted)
-            ),
-            "base_url": config.base_url,
-            "is_default": config.default_model,
-            "status": config.status.value if config.status else None,
-            "description": config.description,
-            "created_at": config.created_at.isoformat(),
-            "updated_at": config.updated_at.isoformat(),
-        }
+        return self._config_to_dict(config)
+    
+    def get_default_config(self, model_type: str) -> Optional[ModelConfig]:
+        """Get the default model config for a given type (internal use)."""
+        return self.db.query(ModelConfig).filter(
+            and_(
+                ModelConfig.model_type == model_type,
+                ModelConfig.default_model == True,
+                ModelConfig.status == ModelStatus.ACTIVE,
+            )
+        ).first()
+    
+    def get_default_llm(self) -> Optional[ModelConfig]:
+        """Get the default LLM model."""
+        return self.get_default_config("llm")
+    
+    def get_default_embedding(self) -> Optional[ModelConfig]:
+        """Get the default Embedding model."""
+        return self.get_default_config("embedding")
+    
+    def get_default_vision(self) -> Optional[ModelConfig]:
+        """Get the default Vision model."""
+        return self.get_default_config("vision")
+    
+    def get_default_search(self) -> Optional[ModelConfig]:
+        """Get the default Search API config."""
+        return self.get_default_config("search")
     
     def delete_config(self, config_id: int) -> bool:
         """Delete a model configuration."""
@@ -129,8 +170,44 @@ class ModelManagementService:
         return True
     
     def get_decrypted_key(self, config_id: int) -> Optional[str]:
-        """Get decrypted API key for internal agent use (never exposed via API)."""
+        """Get decrypted API key for internal use (never exposed via API)."""
         config = self.db.get(ModelConfig, config_id)
         if not config:
             return None
         return self.encryptor.decrypt(config.api_key_encrypted)
+    
+    def get_decrypted_key_for_type(self, model_type: str) -> Optional[str]:
+        """Get decrypted API key for the default model of a given type."""
+        config = self.get_default_config(model_type)
+        if not config:
+            return None
+        return self.encryptor.decrypt(config.api_key_encrypted)
+    
+    def get_all_by_type(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Get all configs grouped by type."""
+        configs = self.get_all_configs()
+        result = {}
+        for config in configs:
+            if config.model_type not in result:
+                result[config.model_type] = []
+            result[config.model_type].append(self._config_to_dict(config))
+        return result
+    
+    def _config_to_dict(self, config: ModelConfig) -> Dict[str, Any]:
+        """Convert config to dictionary for API response."""
+        api_key = self.encryptor.decrypt(config.api_key_encrypted)
+        return {
+            "id": config.id,
+            "model_type": config.model_type,
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "api_key_hash": self.encryptor.hash_api_key_for_display(api_key),
+            "base_url": config.base_url,
+            "is_default": config.default_model,
+            "status": config.status.value if config.status else None,
+            "description": config.description,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "created_at": config.created_at.isoformat() if config.created_at else None,
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        }
