@@ -71,8 +71,9 @@ docker compose logs -f chat-server
 
 ### 消息（P0）
 - ✅ 私聊（1 用户 ↔ 1 Agent）与群聊（多 Agent 编排）
-- ✅ **真实 AG2 对话**：模型管理配置 API Key → 启动自动绑定默认模型
+- ✅ **真实 AG2 对话**：模型管理配置 API Key → 启动自动绑定默认模型（当前默认：MIMO `custom/mimo-v2.5`）
 - ✅ **增量流式**：WS `chat.chunk` 逐字推送（真实 token 流）
+- ✅ **思考内容剥离**：自动剔除 MiMo/R1 等推理模型的内心独白，只显示最终回答
 - ✅ 群聊 @ 路由：@ 谁谁响应；不 @ 时群主（值班）响应
 - ✅ 消息持久化 + 历史加载（`chat.history` 从 DB 读，重启不丢）
 - ✅ mock 兜底：未配置模型时自动降级为模拟回复
