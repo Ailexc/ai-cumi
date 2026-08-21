@@ -317,23 +317,98 @@ class AgentManager:
             response = await self._mock_respond(agent_id, message)
             yield response
 
+    def _strip_reasoning_chunk(self, content: str, state: dict) -> Optional[str]:
+        """Strip inline <think>...</think> segments from a streamed chunk.
+
+        Handles tags split across chunks (the state dict carries the open flag
+        and any partial buffer between calls). Returns the text to emit, or None
+        when the whole chunk was part of a think block.
+        """
+        out: List[str] = []
+        i = 0
+        if state["open"]:
+            # Inside a think block from a previous chunk: look for the close tag.
+            idx = content.find("</think>")
+            if idx == -1:
+                state["buffer"] += content
+                return None
+            tail = content[idx + len("</think>"):]
+            state["open"] = False
+            state["buffer"] = ""
+            content = tail  # continue processing the tail in this chunk
+        while True:
+            o = content.find("<think>", i)
+            if o == -1:
+                out.append(content[i:])
+                break
+            out.append(content[i:o])
+            c = content.find("</think>", o + len("<think>"))
+            if c == -1:
+                # Think block continues into the next chunk.
+                state["open"] = True
+                state["buffer"] = content[o + len("<think>"):]
+                break
+            i = c + len("</think>")
+        return "".join(out) if out else None
+
     async def _real_stream(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
-        """Stream real model output for an agent, chunk by chunk."""
+        """Stream real model output for an agent, chunk by chunk.
+
+        Strips the model's internal thinking so users only see the final answer.
+        Two formats are handled:
+
+        1. AG2 reasoning-content path (R1-style): the openai client prefixes the
+           first reasoning chunk with " thinking" and emits a " response" marker
+           when reasoning ends — we drop everything before the marker.
+        2. Inline tags (MiMo etc.): the thinking is embedded in the content as
+           <think>...</think> — we strip those segments.
+
+        Non-reasoning models (neither marker present) pass through untouched.
+        """
         agent = self.agent_instances.get(agent_id)
         if agent is None:
             yield f"[Agent {agent_id} 未初始化]"
             return
 
         cancellation_token = CancellationToken()
+        first_chunk = True
+        in_reasoning = False          # AG2 " thinking" ... " response" mode
+        tag_state = {"open": False, "buffer": ""}   # <think> ... </think> mode
+
         try:
             async for event in agent.on_messages_stream(
                 [TextMessage(content=message, source="user")],
                 cancellation_token,
             ):
-                if isinstance(event, ModelClientStreamingChunkEvent):
-                    content = event.content
-                    if content:
-                        yield content
+                if not isinstance(event, ModelClientStreamingChunkEvent):
+                    continue
+
+                content = event.content
+                if not content:
+                    continue
+
+                if first_chunk:
+                    first_chunk = False
+                    if content.startswith(" thinking"):
+                        # AG2 reasoning-content path — drop until " response".
+                        in_reasoning = True
+                        content = content[len(" thinking"):]
+                    # else: normal model (or inline <think> handled below)
+
+                if in_reasoning:
+                    if content.startswith(" response"):
+                        in_reasoning = False
+                        content = content[len(" response"):]
+                    else:
+                        continue  # drop reasoning
+
+                if content and (tag_state["open"] or "<think>" in content or "</think>" in content):
+                    content = self._strip_reasoning_chunk(content, tag_state)
+                    if not content:
+                        continue
+
+                if content:
+                    yield content
         except Exception as e:
             print(f"⚠️ real stream error for {agent_id}: {e}")
             yield f"\n\n[Agent 调用出错: {type(e).__name__}: {e}]"

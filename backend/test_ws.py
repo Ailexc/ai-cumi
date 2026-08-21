@@ -45,11 +45,17 @@ async def recv_until(ws, mtype, timeout=5):
             return m
 
 
-async def drain_chunks(ws, idle=1.0, max_msgs=100):
-    """Collect chat.chunk messages until idle; returns {agentId: {mid, n, text}}."""
+async def drain_chunks(ws, idle=2.0, first_timeout=20.0, max_msgs=2000):
+    """Collect chat.chunk until idle; returns {agentId: {mid, n, text}}.
+
+    Waits up to ``first_timeout`` for the first chunk (real reasoning models can
+    take several seconds before the first token), then uses a short ``idle`` gap
+    to detect the end of the stream.
+    """
     got = {}
-    for _ in range(max_msgs):
-        m = await recv_next(ws, idle)
+    while len(got) < max_msgs:
+        timeout = first_timeout if not got else idle
+        m = await recv_next(ws, timeout)
         if m is None:
             break
         if m.get("type") == "chat.chunk":
@@ -75,8 +81,11 @@ async def test_dm_streaming():
         await ws.send(json.dumps({"type": "chat.send", "roomId": "keling", "content": "流式测试"}))
         chunks = []
         done = None
-        for _ in range(100):
-            m = await recv_next(ws, 3)
+        for _ in range(1000):
+            # Real reasoning models produce no chunks during the thinking
+            # phase (stripped server-side), so allow a long wait for the first
+            # message, then shorter gaps between streamed tokens.
+            m = await recv_next(ws, 25.0 if not chunks else 5.0)
             if m is None:
                 break
             if m["type"] == "chat.chunk":
