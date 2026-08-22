@@ -26,13 +26,16 @@ def main():
     print(f"📚 API docs will be available at http://{settings.host}:{settings.port}/docs")
     
     import uvicorn
-    
+
+    # loop="asyncio": AG2's GrpcWorkerAgentRuntime uses grpc.aio, which does NOT
+    # support uvloop (fails the HTTP/2 handshake silently).
     uvicorn.run(
         "app.main:app",
         host=settings.host,
         port=settings.port,
         reload=settings.debug,
         log_level="info",
+        loop="asyncio",
     )
 
 

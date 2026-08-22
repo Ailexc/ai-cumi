@@ -28,4 +28,6 @@ USER appuser
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --loop asyncio is required: AG2's GrpcWorkerAgentRuntime uses grpc.aio which
+# does NOT support uvloop (silently fails the HTTP/2 handshake).
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio"]

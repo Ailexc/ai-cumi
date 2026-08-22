@@ -31,6 +31,8 @@ interface UseChatSocketReturn {
   unread: Record<string, number>;
   /** 正在思考中的房间（roomId → true） */
   thinking: Record<string, boolean>;
+  /** 关联到消息的记忆（roomId → messageId → 记忆列表） */
+  memories: Record<string, Record<string, { id: string; content: string; memory_type: string }[]>>;
   sendMessage: (roomId: string, content: string, mentions?: string[]) => void;
   createRoom: (name: string, agentId: string) => void;
   createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string) => void;
@@ -48,6 +50,7 @@ export function useChatSocket(): UseChatSocketReturn {
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
+  const [memories, setMemories] = useState<Record<string, Record<string, { id: string; content: string; memory_type: string }[]>>>({});
   const activeRoomRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -132,6 +135,16 @@ export function useChatSocket(): UseChatSocketReturn {
       }
       case 'chat.thinking':
         setThinking((t) => ({ ...t, [msg.roomId]: true }));
+        break;
+      case 'chat.memory':
+        // Retrieved long-term memory for an incoming assistant message
+        setMemories((prev) => ({
+          ...prev,
+          [msg.roomId]: {
+            ...(prev[msg.roomId] || {}),
+            [msg.messageId]: msg.memories || [],
+          },
+        }));
         break;
       case 'chat.error':
         // Clear thinking on error too
@@ -317,6 +330,7 @@ export function useChatSocket(): UseChatSocketReturn {
     messages,
     unread,
     thinking,
+    memories,
     sendMessage,
     createRoom,
     createGroup,

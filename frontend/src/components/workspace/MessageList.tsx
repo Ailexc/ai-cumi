@@ -23,6 +23,10 @@ interface MessageListProps {
   agentNameMap?: Map<string, string>;
   /** 推理模型正在思考中 */
   isThinking?: boolean;
+  /** 关联到消息的长期记忆（roomId → messageId → 记忆） */
+  memories?: Record<string, Record<string, { id: string; content: string; memory_type: string }[]>>;
+  /** 当前房间 id（用于查找该房间的记忆） */
+  activeRoomId?: string | null;
 }
 
 /** 按时段生成问候语 */
@@ -34,7 +38,7 @@ function greeting(): string {
   return '晚上好，今天想让团队帮你做什么？';
 }
 
-export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected, isGroup, agentNameMap, isThinking }: MessageListProps) {
+export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvatar, onlineCount, connected, isGroup, agentNameMap, isThinking, memories, activeRoomId }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const memberMeta = useMemberMeta();
@@ -108,6 +112,7 @@ export function MessageList({ roomMessages, hasActiveRoom, roomTitle, agentAvata
                 agentTitle={roomTitle || '助理'}
                 agentName={msgAgentName}
                 agentMsgAvatar={msgAgentAvatar}
+                memories={activeRoomId ? memories?.[activeRoomId]?.[m.id] : undefined}
               />
             );
           })}

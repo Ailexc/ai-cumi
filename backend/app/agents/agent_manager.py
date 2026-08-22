@@ -20,6 +20,7 @@ P0 streaming API (verified on ag2 1.0.2 / autogen-agentchat 0.7.5):
 
 import asyncio
 import json
+import os
 import uuid
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
@@ -116,6 +117,9 @@ class AgentManager:
         self.model_client_stream: bool = True
         self.agent_model_clients: Dict[str, Any] = {}  # per-agent model client override
 
+        # Long-term memory integration (dynamic retrieval + auto-save).
+        self.memory_enabled = os.getenv("MEMORY_ENABLED", "true").lower() not in ("false", "0", "")
+
         # Initialize built-in tools
         register_builtin_tools()
 
@@ -158,11 +162,13 @@ class AgentManager:
         self.model_client = model_client
         self.model_client_stream = stream
 
-    def _build_agent_instance(self, agent_id: str) -> Optional[Any]:
+    def _build_agent_instance(self, agent_id: str, name: Optional[str] = None) -> Optional[Any]:
         """Build a real AssistantAgent from the agent's stored metadata.
 
         Uses the per-agent model client override if set, otherwise the shared one.
         Returns None in mock mode / when no client is available.
+        ``name`` overrides the agent's display name (used by the distributed
+        runtime which may host an agent under a replica route type).
         """
         info = self.agents.get(agent_id)
         if not info:
@@ -186,7 +192,7 @@ class AgentManager:
             agent_tools = tool_registry.get_ag2_tools(tool_names)
         
         return AssistantAgent(
-            name=agent_id,
+            name=name or agent_id,
             model_client=client,
             model_client_stream=self.model_client_stream,
             system_message=info.get("persona") or "",
@@ -300,6 +306,19 @@ class AgentManager:
         agent = self.agents.get(agent_id)
         return dict(agent) if agent else None
 
+    def is_real_mode(self, agent_id: str) -> bool:
+        """Whether this agent runs in real (model-backed) mode."""
+        info = self.agents.get(agent_id)
+        if not info:
+            return False
+        client = self.agent_model_clients.get(agent_id) or self.model_client
+        has_override = agent_id in self.agent_model_clients
+        return bool(
+            HAS_REAL_AGENT
+            and client is not None
+            and (has_override or not self.mock_mode or info.get("force_real"))
+        )
+
     def get_all_agents(self) -> List[Dict[str, Any]]:
         """Get all agent information."""
         return [dict(a) for a in self.agents.values()]
@@ -311,35 +330,158 @@ class AgentManager:
         agent_id: str,
         message: str,
         conversation_history: Optional[List[Dict]] = None,
+        use_memory: bool = True,
     ) -> str:
-        """Send a message to an agent and return the full response."""
-        if agent_id not in self.agents:
-            raise ValueError(f"Agent {agent_id} not found")
+        """Send a message to an agent and return the full response.
 
-        agent_info = self.agents[agent_id]
-
-        if agent_info.get("mode") == "real" and self.agent_instances.get(agent_id):
-            return await self._real_respond(agent_id, message)
-        return await self._mock_respond(agent_id, message)
-
-    async def stream_message(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
-        """Stream an agent's response as token chunks (for WebSocket).
-
-        Yields "__THINKING__" sentinel when the model enters a reasoning/thinking
-        phase (before any real content is emitted). The WS handler should translate
-        this into a chat.thinking event for the frontend.
+        When ``use_memory`` is on, relevant long-term memories are retrieved and
+        injected into the message context before the agent responds.
         """
         if agent_id not in self.agents:
             raise ValueError(f"Agent {agent_id} not found")
 
         agent_info = self.agents[agent_id]
-        if agent_info.get("mode") == "real" and self.agent_instances.get(agent_id):
-            async for chunk in self._real_stream(agent_id, message):
-                yield chunk
-        else:
-            # Mock: yield the whole canned reply as a single chunk
-            response = await self._mock_respond(agent_id, message)
-            yield response
+
+        from ..tracing import tracing_system
+        from ..tracing.tracer import TraceEventType
+
+        enriched, memories = await self.build_memory_context(agent_id, message) if use_memory else (message, [])
+        trace = tracing_system.start_trace(agent_id, {"kind": "dm", "message": message[:200]})
+        try:
+            if memories:
+                await tracing_system.add_event(
+                    trace.id, TraceEventType.MEMORY_QUERY, agent_id,
+                    {"count": len(memories)},
+                )
+            if agent_info.get("mode") == "real" and self.agent_instances.get(agent_id):
+                await tracing_system.add_event(
+                    trace.id, TraceEventType.MODEL_CALL, agent_id,
+                    {"mode": "real", "message": message[:100]},
+                )
+                return await self._real_respond(agent_id, enriched)
+            return await self._mock_respond(agent_id, enriched)
+        finally:
+            try:
+                tracing_system.end_trace(trace.id)
+            except Exception:
+                pass
+
+    async def stream_message(
+        self,
+        agent_id: str,
+        message: str,
+        use_memory: bool = True,
+    ) -> AsyncGenerator[str, None]:
+        """Stream an agent's response as token chunks (for WebSocket).
+
+        Sentinels:
+        - ``__THINKING__`` — model entered a reasoning phase.
+        - ``__MEMORY__:<json>`` — retrieved memories injected into the context
+          (emitted before the first chunk when ``use_memory`` is on).
+
+        The WS handler translates these into ``chat.thinking`` / ``chat.memory``
+        events for the frontend.
+        """
+        if agent_id not in self.agents:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        agent_info = self.agents[agent_id]
+
+        from ..tracing import tracing_system
+        from ..tracing.tracer import TraceEventType
+
+        enriched, memories = await self.build_memory_context(agent_id, message) if use_memory else (message, [])
+        trace = tracing_system.start_trace(agent_id, {"kind": "dm_stream", "message": message[:200]})
+        try:
+            if memories:
+                await tracing_system.add_event(
+                    trace.id, TraceEventType.MEMORY_QUERY, agent_id,
+                    {"count": len(memories)},
+                )
+                yield "__MEMORY__:" + json.dumps(memories, ensure_ascii=False)
+
+            if agent_info.get("mode") == "real" and self.agent_instances.get(agent_id):
+                await tracing_system.add_event(
+                    trace.id, TraceEventType.MODEL_CALL, agent_id,
+                    {"mode": "real", "message": message[:100]},
+                )
+                async for chunk in self._real_stream(agent_id, enriched):
+                    yield chunk
+            else:
+                # Mock: yield the whole canned reply as a single chunk
+                response = await self._mock_respond(agent_id, enriched)
+                yield response
+        finally:
+            try:
+                tracing_system.end_trace(trace.id)
+            except Exception:
+                pass
+
+    # ---- Long-term memory integration ----
+
+    async def retrieve_memories(self, agent_id: str, message: str, n_results: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve relevant long-term memories for this message (vector search)."""
+        try:
+            from ..memory import vector_memory
+            if vector_memory is None:
+                return []
+            results = await asyncio.to_thread(
+                vector_memory.search, query=message, agent_id=agent_id, n_results=n_results,
+            )
+            return [
+                {
+                    "id": r.id,
+                    "content": r.content,
+                    "memory_type": r.memory_type,
+                    "created_at": r.created_at,
+                }
+                for r in results
+            ]
+        except Exception as e:
+            print(f"⚠️ memory retrieve error for {agent_id}: {e}")
+            return []
+
+    async def build_memory_context(self, agent_id: str, message: str, n_results: int = 5):
+        """Retrieve relevant memories and build an enriched message context.
+
+        Returns ``(enriched_message, memories)``. When memory is disabled or no
+        relevant memory is found, the original message is returned unchanged.
+        """
+        if not self.memory_enabled:
+            return message, []
+        memories = await self.retrieve_memories(agent_id, message, n_results)
+        if not memories:
+            return message, []
+        lines = [f"- （{m['memory_type']}）{m['content']}" for m in memories]
+        context = (
+            "以下是长期记忆中与当前话题相关的信息，供你参考：\n"
+            + "\n".join(lines)
+            + "\n\n【当前用户消息】\n"
+            + message
+        )
+        return context, memories
+
+    async def save_exchange(self, agent_id: str, user_message: str, assistant_reply: str):
+        """Persist a user↔assistant exchange into the agent's long-term memory."""
+        if not self.memory_enabled:
+            return
+        try:
+            from ..memory import vector_memory
+            if vector_memory is None:
+                return
+            if user_message and user_message.strip():
+                await asyncio.to_thread(
+                    vector_memory.add, user_message, agent_id, "conversation",
+                    {"role": "user"},
+                )
+            if assistant_reply and assistant_reply.strip():
+                await asyncio.to_thread(
+                    vector_memory.add, assistant_reply, agent_id, "conversation",
+                    {"role": "assistant"},
+                )
+            print(f"🧠 memory saved for {agent_id} (exchange)")
+        except Exception as e:
+            print(f"⚠️ memory save error for {agent_id}: {e}")
 
     def _strip_reasoning_chunk(self, content: str, state: dict) -> Optional[str]:
         """Strip inline <think>...</think> segments from a streamed chunk.
@@ -721,7 +863,9 @@ class GroupChatManager:
         for agent_id in self._resolve_targets(room_id, mentions):
             message_id = str(uuid.uuid4())
             try:
-                async for chunk in self.agent_manager.stream_message(agent_id, message):
+                # use_memory=False: group replies shouldn't embed the __MEMORY__
+                # sentinel (DM-only memory injection keeps the group protocol clean).
+                async for chunk in self.agent_manager.stream_message(agent_id, message, use_memory=False):
                     yield (agent_id, chunk, message_id)
             except Exception as e:
                 print(f"⚠️ group stream error for {agent_id}: {e}")
@@ -744,9 +888,9 @@ class GroupChatManager:
 
         target_agents = self._resolve_targets(room_id, mentions)
 
-        # Get responses from each agent concurrently
+        # Get responses from each agent concurrently (memory injection off for groups)
         tasks = [
-            self.agent_manager.send_message(agent_id, message)
+            self.agent_manager.send_message(agent_id, message, use_memory=False)
             for agent_id in target_agents
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

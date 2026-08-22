@@ -35,12 +35,36 @@ agent_manager: Optional[AgentManager] = None
 group_chat_manager: Optional[GroupChatManager] = None
 ws_manager: Optional[WebSocketManager] = None
 model_encryptor: Optional[ModelKeyEncryptor] = None
+distributed_manager: Optional[Any] = None
+
+
+def _make_distributed_factory(am: "AgentManager"):
+    """Build agent instances for the distributed worker pool.
+
+    Each worker hosts a DistributedProxyAgent that delegates execution to the
+    shared agent manager (real model-backed assistant, or mock reply). This is
+    the worker-executor pattern: the distributed gRPC topology / LB / health /
+    failover is real, and agent execution reuses the proven in-process path.
+    """
+    from .distributed import DistributedProxyAgent, MockDistributedAgent
+
+    async def executor(agent_id: str, message: str) -> str:
+        return await am.send_message(agent_id, message)
+
+    def factory(route_type: str, worker_id: str):
+        # route_type may carry a replica suffix ("keling__r1") -> real agent id
+        agent_id = route_type.split("__")[0]
+        if agent_id not in am.agents:
+            return None
+        return DistributedProxyAgent(route_type, agent_id, executor)
+
+    return factory
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global agent_manager, group_chat_manager, ws_manager, model_encryptor
+    global agent_manager, group_chat_manager, ws_manager, model_encryptor, distributed_manager
 
     # Initialize database
     init_db()
@@ -154,6 +178,26 @@ async def lifespan(app: FastAPI):
         traceback.print_exc()
         print(f"⚠️ Workflow engine wiring failed: {e}")
 
+    # ---- Distributed agent runtime (P2: AG2 gRPC Worker Runtime) ----
+    try:
+        from .distributed import DistributedAgentManager
+        distributed_manager = DistributedAgentManager()
+        distributed_manager.set_agent_factory(_make_distributed_factory(agent_manager))
+        started = await distributed_manager.start(list(agent_manager.agents.keys()))
+        if started:
+            state.distributed_manager = distributed_manager
+            print(f"✅ Distributed runtime ready "
+                  f"(host=localhost:{distributed_manager.host_port}, "
+                  f"workers={distributed_manager.worker_count})")
+        else:
+            state.distributed_manager = None
+            print("⚠️ Distributed runtime not started (no agents)")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"⚠️ Distributed runtime init failed (non-fatal): {e}")
+        state.distributed_manager = None
+
     print("✅ AiCumi AG2 Backend started successfully")
     print(f"🤖 Agent count: {len(agent_manager.agents)}")
     for aid, info in agent_manager.agents.items():
@@ -162,6 +206,11 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup
+    if distributed_manager:
+        try:
+            await distributed_manager.stop()
+        except Exception as e:
+            print(f"⚠️ Distributed runtime stop error: {e}")
     if agent_manager:
         await agent_manager.cleanup()
     print("👋 AiCumi AG2 Backend stopped")
@@ -393,6 +442,11 @@ async def send_message(message: ChatMessage):
                 save_message(db, message.room_id, "assistant", response, agent_id=message.room_id)
             finally:
                 db.close()
+            # Long-term memory: persist this exchange for future retrieval
+            try:
+                await agent_manager.save_exchange(message.room_id, message.content, response)
+            except Exception as e:
+                print(f"⚠️ REST save_exchange error: {e}")
             return {
                 "status": "sent",
                 "response": response,
@@ -545,6 +599,20 @@ async def websocket_endpoint(websocket: WebSocket):
                         chunks = []
                         thinking_sent = False
                         async for chunk in agent_manager.stream_message(room_id, content):
+                            if chunk.startswith("__MEMORY__:"):
+                                # Retrieved long-term memory -> chat.memory event
+                                try:
+                                    memories = json.loads(chunk[len("__MEMORY__:"):])
+                                    await ws_manager.send_json(websocket, {
+                                        "type": "chat.memory",
+                                        "roomId": room_id,
+                                        "messageId": message_id,
+                                        "agentId": room_id,
+                                        "memories": memories,
+                                    })
+                                except Exception:
+                                    pass
+                                continue
                             if chunk == "__THINKING__":
                                 if not thinking_sent:
                                     thinking_sent = True
@@ -573,6 +641,11 @@ async def websocket_endpoint(websocket: WebSocket):
                             save_message(db, room_id, "assistant", full_content, agent_id=room_id)
                         finally:
                             db.close()
+                        # Long-term memory: save this exchange (fire-and-forget-safe await)
+                        try:
+                            await agent_manager.save_exchange(room_id, content, full_content)
+                        except Exception as e:
+                            print(f"⚠️ WS save_exchange error: {e}")
                         await ws_manager.send_json(websocket, {
                             "type": "chat.done",
                             "roomId": room_id,
@@ -1106,6 +1179,91 @@ async def get_trace(trace_id: str):
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
     return {"ok": True, "trace": trace.to_dict()}
+
+
+# ---- Distributed Agent API (P2: AG2 gRPC Worker Runtime) ----
+
+class DistributedSendRequest(BaseModel):
+    """Dispatch a message to an agent through the distributed worker runtime."""
+    agent_id: str
+    message: str
+
+
+def _require_distributed() -> Any:
+    if not state.distributed_manager or not state.distributed_manager.enabled:
+        raise HTTPException(status_code=503, detail="分布式 Worker Runtime 未启用")
+    return state.distributed_manager
+
+
+@app.get("/api/distributed/status")
+async def distributed_status():
+    """Get the distributed runtime topology + worker health + LB stats."""
+    dm = _require_distributed()
+    return {"ok": True, "status": dm.get_status()}
+
+
+@app.get("/api/distributed/agents")
+async def distributed_agents():
+    """List which agents are registered on which worker (distribution + replicas)."""
+    dm = _require_distributed()
+    status = dm.get_status()
+    return {"ok": True, "agents": status["agents"], "stats": status["stats"]}
+
+
+@app.post("/api/distributed/send")
+async def distributed_send(request: DistributedSendRequest):
+    """Dispatch a real message to an agent through the gRPC worker runtime.
+
+    Demonstrates remote invocation + load balancing (round-robin across
+    replicas) + automatic failover when a worker is down.
+    """
+    dm = _require_distributed()
+    try:
+        import time
+        t0 = time.time()
+        reply = await dm.send_message(request.agent_id, request.message)
+        return {
+            "ok": True,
+            "agent_id": request.agent_id,
+            "response": reply,
+            "latency_ms": round((time.time() - t0) * 1000, 1),
+            "stats": dm.get_status()["stats"],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分布式调用失败: {e}")
+
+
+@app.post("/api/distributed/workers/{worker_id}/down")
+async def distributed_worker_down(worker_id: str):
+    """Simulate a worker crash → triggers failover of its agents."""
+    dm = _require_distributed()
+    ok = await dm.mark_worker_down(worker_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} not found")
+    return {"ok": True, "message": f"Worker {worker_id} 已下线（触发故障转移）",
+            "status": dm.get_status()}
+
+
+@app.post("/api/distributed/workers/{worker_id}/up")
+async def distributed_worker_up(worker_id: str):
+    """Restart a stopped worker and re-register its agents."""
+    dm = _require_distributed()
+    ok = await dm.recover_worker(worker_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} 恢复失败")
+    return {"ok": True, "message": f"Worker {worker_id} 已恢复", "status": dm.get_status()}
+
+
+@app.post("/api/distributed/rebuild")
+async def distributed_rebuild():
+    """Rebuild the worker pool and re-register all current agents."""
+    dm = _require_distributed()
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    await dm.rebuild(list(agent_manager.agents.keys()))
+    return {"ok": True, "message": "分布式运行时已重建", "status": dm.get_status()}
 
 
 # ---- Workflow API ----

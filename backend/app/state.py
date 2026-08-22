@@ -12,5 +12,8 @@ agent_manager: Optional[Any] = None
 group_chat_manager: Optional[Any] = None
 ws_manager: Optional[Any] = None
 
+# Distributed agent runtime (P2, gRPC worker runtime)
+distributed_manager: Optional[Any] = None
+
 # Model-key encryptor (persistent master key)
 model_encryptor: Optional[Any] = None

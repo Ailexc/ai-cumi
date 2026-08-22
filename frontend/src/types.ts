@@ -63,6 +63,7 @@ export type ServerMessage =
   | { type: 'chat.chunk'; roomId: string; messageId: string; content: string; agentId?: string }
   | { type: 'chat.done'; roomId: string; messageId: string; fullContent: string; agentId?: string }
   | { type: 'chat.thinking'; roomId: string; messageId: string; agentId?: string }
+  | { type: 'chat.memory'; roomId: string; messageId: string; agentId?: string; memories: { id: string; content: string; memory_type: string; created_at?: string }[] }
   | { type: 'chat.error'; roomId: string; error: string }
   | { type: 'chat.history'; roomId: string; messages: { role: string; content: string; timestamp: number; agentId?: string }[] }
   | { type: 'room.created'; room: Room }

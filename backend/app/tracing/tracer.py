@@ -217,12 +217,85 @@ class TracingSystem:
         return sorted(traces, key=lambda t: t.started_at, reverse=True)[:limit]
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get tracing statistics."""
+        """Get tracing statistics + performance monitoring metrics.
+
+        Includes:
+        - response time: avg / p50 / p95 / max (from completed trace durations)
+        - call counts: model calls, tool calls, total events
+        - error rate: error events / total events
+        - per-agent breakdown
+        """
+        completed = self._completed_traces
+        durations = [
+            t._calculate_duration() for t in completed if t.ended_at and t._calculate_duration() is not None
+        ]
+
+        def pct(arr: List[float], p: float) -> float:
+            if not arr:
+                return 0.0
+            s = sorted(arr)
+            idx = min(len(s) - 1, int(len(s) * p))
+            return round(s[idx], 1)
+
+        avg_duration = round(sum(durations) / len(durations), 1) if durations else 0.0
+
+        # Aggregate events across completed + active traces
+        all_events = [
+            e
+            for t in list(self._traces.values()) + completed
+            for e in t.events
+        ]
+        model_calls = sum(1 for e in all_events if e.event_type == TraceEventType.MODEL_CALL)
+        tool_calls = sum(1 for e in all_events if e.event_type == TraceEventType.TOOL_CALL)
+        memory_queries = sum(1 for e in all_events if e.event_type == TraceEventType.MEMORY_QUERY)
+        error_events = sum(1 for e in all_events if e.event_type == TraceEventType.ERROR)
+        total_events = len(all_events)
+        error_rate = round(error_events / total_events * 100, 2) if total_events else 0.0
+
+        # Per-agent breakdown
+        agents: Dict[str, Dict[str, Any]] = {}
+        for t in completed:
+            a = agents.setdefault(t.agent_id, {
+                "traces": 0, "model_calls": 0, "tool_calls": 0, "errors": 0,
+                "durations": [], "avg_duration_ms": 0.0,
+            })
+            a["traces"] += 1
+            d = t._calculate_duration()
+            if d is not None:
+                a["durations"].append(d)
+            for e in t.events:
+                if e.event_type == TraceEventType.MODEL_CALL:
+                    a["model_calls"] += 1
+                elif e.event_type == TraceEventType.TOOL_CALL:
+                    a["tool_calls"] += 1
+                elif e.event_type == TraceEventType.ERROR:
+                    a["errors"] += 1
+        for a in agents.values():
+            a["avg_duration_ms"] = round(sum(a["durations"]) / len(a["durations"]), 1) if a["durations"] else 0.0
+            a.pop("durations", None)
+
         return {
             "active_traces": len(self._traces),
-            "completed_traces": len(self._completed_traces),
-            "total_events": sum(len(t.events) for t in self._traces.values()) +
-                           sum(len(t.events) for t in self._completed_traces),
+            "completed_traces": len(completed),
+            "total_events": total_events,
+            # performance monitoring
+            "response_time_ms": {
+                "avg": avg_duration,
+                "p50": pct(durations, 0.5),
+                "p95": pct(durations, 0.95),
+                "max": pct(durations, 1.0),
+                "sample_count": len(durations),
+            },
+            "calls": {
+                "model_calls": model_calls,
+                "tool_calls": tool_calls,
+                "memory_queries": memory_queries,
+            },
+            "errors": {
+                "error_events": error_events,
+                "error_rate": error_rate,
+            },
+            "agents": agents,
         }
 
 

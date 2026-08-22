@@ -129,19 +129,38 @@ class VectorMemory:
             print("⚠️ No embedding config found, using keyword fallback")
     
     def _get_embedding(self, text: str) -> Optional[List[float]]:
-        """Get embedding for text."""
-        if not self._openai_client:
-            return None
-        
-        try:
-            response = self._openai_client.embeddings.create(
-                model=self.embedding_model,
-                input=text,
-            )
-            return response.data[0].embedding
-        except Exception as e:
-            print(f"⚠️ Embedding failed: {e}")
-            return None
+        """Get embedding for text.
+
+        Uses the configured OpenAI-compatible embedding client when available;
+        otherwise falls back to a deterministic local bag-of-words hash embedding
+        so the memory system works out-of-the-box (persists to ChromaDB + gives
+        keyword-style semantic similarity) without any external API key.
+        """
+        if self._openai_client:
+            try:
+                response = self._openai_client.embeddings.create(
+                    model=self.embedding_model,
+                    input=text,
+                )
+                return response.data[0].embedding
+            except Exception as e:
+                print(f"⚠️ Embedding failed, using local fallback: {e}")
+        return self._local_embedding(text)
+
+    @staticmethod
+    def _local_embedding(text: str, dim: int = 256) -> List[float]:
+        """Deterministic bag-of-words hash embedding (no external dependency)."""
+        import hashlib
+        import math
+        import re
+        vec = [0.0] * dim
+        for tok in re.findall(r"[\w\u4e00-\u9fff]+", (text or "").lower()):
+            h = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16)
+            idx = h % dim
+            sign = 1.0 if (h >> 16) & 1 else -1.0
+            vec[idx] += sign
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
     
     def add(
         self,
@@ -227,6 +246,9 @@ class VectorMemory:
                             created_at=metadata.get("created_at", ""),
                         ))
                     
+                    # No hits in ChromaDB → also search the in-memory fallback store
+                    if not entries:
+                        return self._in_memory_search(query, agent_id, memory_type, n_results)
                     return entries
             except Exception as e:
                 print(f"⚠️ ChromaDB search failed: {e}")
@@ -260,15 +282,20 @@ class VectorMemory:
         return results[:n_results]
     
     def get_by_agent(self, agent_id: str, limit: int = 50) -> List[MemoryEntry]:
-        """Get all memories for an agent."""
+        """Get all memories for an agent.
+
+        Merges ChromaDB results with the in-memory fallback store (dedup by id)
+        so memories are visible even when only the local fallback embedding is
+        being used.
+        """
+        entries: List[MemoryEntry] = []
+        seen: set = set()
         if self._collection:
             try:
                 results = self._collection.get(
                     where={"agent_id": agent_id},
                     limit=limit,
                 )
-                
-                entries = []
                 for i, doc_id in enumerate(results["ids"]):
                     metadata = results["metadatas"][i] if results["metadatas"] else {}
                     entries.append(MemoryEntry(
@@ -279,13 +306,18 @@ class VectorMemory:
                         metadata=metadata,
                         created_at=metadata.get("created_at", ""),
                     ))
-                
-                return entries
+                    seen.add(doc_id)
             except Exception as e:
                 print(f"⚠️ ChromaDB get failed: {e}")
-        
-        # Fallback
-        return [e for e in self._in_memory_store if e.agent_id == agent_id][:limit]
+
+        # Merge in-memory fallback store (no embedding / keyword mode)
+        for e in self._in_memory_store:
+            if e.agent_id == agent_id and e.id not in seen:
+                entries.append(e)
+                seen.add(e.id)
+                if len(entries) >= limit:
+                    break
+        return entries[:limit]
     
     def delete(self, memory_id: str) -> bool:
         """Delete a memory entry."""

@@ -1,5 +1,6 @@
 // AiCumi — 消息气泡（用户 / AI），忠实移植 design-reference/pages/chat-main.html
 // 阶段二：支持群聊（显示 agent 名字 + 头像）
+import { useState } from 'react';
 import type { ChatMessage } from '../../types';
 
 interface MessageBubbleProps {
@@ -10,10 +11,13 @@ interface MessageBubbleProps {
   agentName?: string;
   /** 群聊时：该消息的 agent 头像 */
   agentMsgAvatar?: string;
+  /** 该消息关联的长期记忆（动态检索注入，学习导向展示） */
+  memories?: { id: string; content: string; memory_type: string }[];
 }
 
-export function MessageBubble({ msg, agentAvatar, agentTitle, agentName, agentMsgAvatar }: MessageBubbleProps) {
+export function MessageBubble({ msg, agentAvatar, agentTitle, agentName, agentMsgAvatar, memories }: MessageBubbleProps) {
   const isUser = msg.role !== 'assistant';
+  const [memOpen, setMemOpen] = useState(false);
   const time = new Date(msg.timestamp);
   const timeText = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
 
@@ -51,6 +55,27 @@ export function MessageBubble({ msg, agentAvatar, agentTitle, agentName, agentMs
         {/* 群聊：显示 agent 名字 */}
         {agentName && (
           <span className="mb-1 block text-xs font-medium text-muted-foreground">{agentName}</span>
+        )}
+        {/* 长期记忆关联提示（学习导向） */}
+        {memories && memories.length > 0 && (
+          <button
+            onClick={() => setMemOpen((v) => !v)}
+            className="mb-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 hover:bg-amber-100"
+            title="点击展开本次注入的长期记忆"
+          >
+            🧠 已关联 {memories.length} 条记忆
+            <span className="text-[10px]">{memOpen ? '▲' : '▼'}</span>
+          </button>
+        )}
+        {memories && memOpen && memories.length > 0 && (
+          <div className="mb-1 space-y-1 rounded-lg border border-amber-200 bg-amber-50/60 p-2">
+            {memories.map((mem) => (
+              <div key={mem.id} className="text-[11px] leading-snug text-amber-800">
+                <span className="mr-1 rounded bg-amber-100 px-1 text-[10px]">{mem.memory_type}</span>
+                {mem.content}
+              </div>
+            ))}
+          </div>
         )}
         <div className="rounded-2xl rounded-tl-md border border-border bg-surface px-4 py-3 shadow-sm">
           {msg.streaming && !msg.content ? (

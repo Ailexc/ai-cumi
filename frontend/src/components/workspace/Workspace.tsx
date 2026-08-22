@@ -20,11 +20,12 @@ import { ToolPanel } from './ToolPanel';
 import { ApprovalPanel } from './ApprovalPanel';
 import { TracingPanel } from './TracingPanel';
 import { WorkflowPanel } from './WorkflowPanel';
+import { DistributedPanel } from './DistributedPanel';
 import { getAgentMeta, formatTime, truncate } from './agentMeta';
 import type { Conv } from './Sidebar';
 
 export function Workspace() {
-  const { connected, rooms, agents, messages, sendMessage, loadHistory, refreshRooms, unread, thinking, setActiveRoom, createGroup } =
+  const { connected, rooms, agents, messages, sendMessage, loadHistory, refreshRooms, unread, thinking, memories, setActiveRoom, createGroup } =
     useChatSocket();
   const memberMeta = useMemberMeta(); // agentId → {role, avatar}（后端下发，覆盖前端常量）
   const [activeNav, setActiveNav] = useState('chat'); // 'chat' | 'members' | 未来扩展
@@ -150,7 +151,7 @@ export function Workspace() {
       <AppRail
         active={activeNav}
         onSelect={(id) => {
-          if (id === 'chat' || id === 'members' || id === 'channels' || id === 'models' || id === 'tools' || id === 'approval' || id === 'tracing' || id === 'workflows') setActiveNav(id);
+          if (id === 'chat' || id === 'members' || id === 'channels' || id === 'models' || id === 'tools' || id === 'approval' || id === 'tracing' || id === 'workflows' || id === 'distributed') setActiveNav(id);
           setRosterOpen(false);
         }}
         onPlanned={(label) => showToast(`${label} · 规划中，敬请期待`)}
@@ -189,6 +190,11 @@ export function Workspace() {
         <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-background p-6">
           <WorkflowPanel />
         </div>
+      ) : activeNav === 'distributed' ? (
+        /* ===== 分布式面板 ===== */
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <DistributedPanel />
+        </div>
       ) : (
         /* ===== 消息视图：我的团队 + 聊天窗 ===== */
         <>
@@ -222,6 +228,8 @@ export function Workspace() {
               isGroup={isGroupChat}
               agentNameMap={agentName}
               isThinking={activeRoomId ? !!thinking[activeRoomId] : false}
+              memories={memories}
+              activeRoomId={activeRoomId}
             />
 
             <Composer
