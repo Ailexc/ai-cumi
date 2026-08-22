@@ -17,6 +17,7 @@ class ModelProvider(str, enum.Enum):
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
     MISTRAL = "mistral"
+    DASHSCOPE = "dashscope"
     CUSTOM = "custom"
 
 
@@ -63,7 +64,22 @@ class ModelConfig(Base):
     
     # Status
     status = Column(Enum(ModelStatus), default=ModelStatus.ACTIVE)
-    
+
+    # Capability / pricing fields (P1: model config enhancement)
+    embedding_dimensions = Column(Integer, nullable=True)
+    max_input_tokens = Column(Integer, nullable=True)
+    max_output_tokens = Column(Integer, nullable=True)
+    context_window = Column(Integer, nullable=True)
+    supports_vision = Column(Boolean, default=False)
+    supports_function_calling = Column(Boolean, default=False)
+    supports_streaming = Column(Boolean, default=True)
+    price_per_1k_input_tokens = Column(Float, nullable=True)
+    price_per_1k_output_tokens = Column(Float, nullable=True)
+    rate_limit_rpm = Column(Integer, nullable=True)
+    rate_limit_tpm = Column(Integer, nullable=True)
+    rate_limit_tpd = Column(Integer, nullable=True)
+    batch_size = Column(Integer, default=32)
+
     # Metadata
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -222,3 +238,38 @@ class WorkflowRun(Base):
     completed_at = Column(DateTime, nullable=True)
     duration_ms = Column(Float, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class KnowledgeDocument(Base):
+    """Indexed document in cloud space."""
+    __tablename__ = "knowledge_documents"
+
+    id = Column(String(50), primary_key=True)
+    file_path = Column(String(500), nullable=False, unique=True)
+    file_name = Column(String(200), nullable=False)
+    file_size = Column(Integer, nullable=True)
+    mime_type = Column(String(100), nullable=True)
+    chunk_count = Column(Integer, default=0)
+    status = Column(String(20), default="pending")  # pending/indexing/indexed/failed/outdated
+    error_message = Column(Text, nullable=True)
+    last_indexed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class RagSettings(Base):
+    """RAG laboratory configuration (single-row settings table)."""
+    __tablename__ = "rag_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    chunk_strategy = Column(String(20), default="recursive")  # fixed/recursive/markdown/semantic
+    chunk_size = Column(Integer, default=512)
+    chunk_overlap = Column(Integer, default=128)
+    separator = Column(String(50), default="\n\n")
+    retrieval_mode = Column(String(20), default="vector")  # vector/keyword/hybrid
+    top_k = Column(Integer, default=5)
+    score_threshold = Column(Float, default=0.5)
+    rerank_enabled = Column(Boolean, default=False)
+    rerank_top_n = Column(Integer, default=5)
+    embedding_model_id = Column(Integer, nullable=True)  # references model_configs.id
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

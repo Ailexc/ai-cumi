@@ -23,6 +23,12 @@ pydantic-settings
 python-multipart
 cryptography
 
+# RAG / Cloud Space
+pymupdf>=1.24.0
+python-docx>=1.1.0
+markitdown>=0.0.1
+beautifulsoup4>=4.12.0
+
 # Development
 pytest
 pytest-asyncio

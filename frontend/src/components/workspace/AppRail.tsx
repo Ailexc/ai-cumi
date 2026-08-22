@@ -21,6 +21,8 @@ interface RailItem {
 const RAIL_ITEMS: RailItem[] = [
   { id: 'chat', label: '消息', icon: MessageSquare },
   { id: 'members', label: '成员管理', icon: Users },
+  { id: 'cloud-space', label: '云空间', icon: FileText },
+  { id: 'knowledge', label: 'RAG 实验室', icon: BookOpen },
   { id: 'channels', label: '渠道', icon: Radio },
   { id: 'models', label: '模型', icon: Cpu },
   { id: 'tools', label: '工具箱', icon: Wrench },
@@ -32,8 +34,6 @@ const RAIL_ITEMS: RailItem[] = [
 
 /** 未来扩展位（底部灰显） */
 const PLANNED_ITEMS: RailItem[] = [
-  { id: 'knowledge', label: '知识问答', icon: BookOpen, planned: true },
-  { id: 'docs', label: '云文档', icon: FileText, planned: true },
   { id: 'calendar', label: '日历', icon: CalendarDays, planned: true },
   { id: 'tasks', label: '任务', icon: ListChecks, planned: true },
   { id: 'settings', label: '设置', icon: Settings, planned: true },

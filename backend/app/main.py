@@ -22,6 +22,9 @@ from .api import members as members_router
 from .api import skills as skills_router
 from .api import staff as staff_router
 from .api import channels as channels_router
+from .cloud_space import router as cloud_space_router
+from .knowledge import router as knowledge_router
+from .settings import router as settings_router
 from .chat.websocket_manager import WebSocketManager
 from .config import settings
 from .database import init_db, get_db
@@ -238,15 +241,25 @@ app.include_router(members_router.router)
 app.include_router(skills_router.router)
 app.include_router(staff_router.router)
 app.include_router(channels_router.router)
+app.include_router(cloud_space_router)
+app.include_router(knowledge_router)
+app.include_router(settings_router)
 
 
 # Pydantic models
+class KnowledgeScope(BaseModel):
+    """Knowledge scope for RAG injection."""
+    mode: str = "auto"  # auto | selected
+    directory_ids: Optional[List[str]] = None
+
+
 class ChatMessage(BaseModel):
     """Chat message model."""
     content: str
     room_id: str
     room_type: str = "dm"  # "dm" or "group"
     mentions: Optional[List[str]] = None
+    knowledge_scope: Optional[KnowledgeScope] = None
 
 
 class AgentCreate(BaseModel):
@@ -278,6 +291,20 @@ class ModelConfigCreate(BaseModel):
     is_default: bool = False
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    # Capability / pricing fields
+    embedding_dimensions: Optional[int] = None
+    max_input_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    context_window: Optional[int] = None
+    supports_vision: Optional[bool] = False
+    supports_function_calling: Optional[bool] = False
+    supports_streaming: Optional[bool] = True
+    price_per_1k_input_tokens: Optional[float] = None
+    price_per_1k_output_tokens: Optional[float] = None
+    rate_limit_rpm: Optional[int] = None
+    rate_limit_tpm: Optional[int] = None
+    rate_limit_tpd: Optional[int] = None
+    batch_size: Optional[int] = 32
 
 
 class ModelConfigUpdate(BaseModel):
@@ -292,6 +319,19 @@ class ModelConfigUpdate(BaseModel):
     status: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    embedding_dimensions: Optional[int] = None
+    max_input_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    context_window: Optional[int] = None
+    supports_vision: Optional[bool] = None
+    supports_function_calling: Optional[bool] = None
+    supports_streaming: Optional[bool] = None
+    price_per_1k_input_tokens: Optional[float] = None
+    price_per_1k_output_tokens: Optional[float] = None
+    rate_limit_rpm: Optional[int] = None
+    rate_limit_tpm: Optional[int] = None
+    rate_limit_tpd: Optional[int] = None
+    batch_size: Optional[int] = None
 
 
 # Health check endpoint
@@ -421,19 +461,68 @@ async def delete_agent(agent_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+async def _build_rag_context(db: Session, query: str, scope: Optional[KnowledgeScope]) -> str:
+    """Build RAG context from knowledge base for injection."""
+    from .knowledge.rag_config import get_rag_settings, RagConfig
+    from .knowledge.indexer import _get_embedding_provider
+    from .knowledge.retriever import KnowledgeRetriever
+
+    config = get_rag_settings(db)
+    provider = _get_embedding_provider(db, model_encryptor, config)
+    retriever = KnowledgeRetriever(
+        provider=provider,
+        persist_dir="data/memory",
+        retrieval_mode=config.retrieval_mode,
+        top_k=config.top_k,
+        score_threshold=config.score_threshold,
+        rerank_enabled=config.rerank_enabled,
+        rerank_top_n=config.rerank_top_n,
+    )
+
+    where_filter = None
+    if scope and scope.mode == "selected" and scope.directory_ids:
+        where_filter = {"file_path": {"$in": scope.directory_ids}}
+
+    results = await retriever.retrieve(query, where_filter=where_filter)
+    if not results:
+        return ""
+
+    parts = []
+    for i, r in enumerate(results):
+        parts.append(f"[文档片段 {i+1}] 来源: {r.file_name} ({r.file_path})\n{r.content}")
+    return "\n\n---\n\n".join(parts)
+
+
 # Chat endpoints
 @app.post("/api/chat/send")
 async def send_message(message: ChatMessage):
     """Send a message to an agent or group."""
     if not agent_manager:
         raise HTTPException(status_code=500, detail="Agent manager not initialized")
-    
+
     try:
+        # Build optional RAG context
+        rag_context = ""
+        if message.knowledge_scope:
+            db = next(get_db())
+            try:
+                rag_context = await _build_rag_context(db, message.content, message.knowledge_scope)
+            finally:
+                db.close()
+
+        user_message = message.content
+        if rag_context:
+            user_message = (
+                f"请基于以下知识库上下文回答问题。如果上下文中没有相关信息，请说明。\n\n"
+                f"[知识库上下文]\n{rag_context}\n\n"
+                f"[用户问题]\n{message.content}"
+            )
+
         if message.room_type == "dm":
             # Direct message to single agent
             response = await agent_manager.send_message(
                 agent_id=message.room_id,
-                message=message.content,
+                message=user_message,
             )
             # Persist user + assistant messages
             db = next(get_db())
@@ -459,7 +548,7 @@ async def send_message(message: ChatMessage):
                 raise HTTPException(status_code=404, detail=f"Group room {message.room_id} not found")
             response = await group_chat_manager.send_message(
                 room_id=message.room_id,
-                message=message.content,
+                message=user_message,
                 mentions=message.mentions,
             )
             # Persist user + each agent's reply
@@ -550,6 +639,44 @@ async def websocket_endpoint(websocket: WebSocket):
                 room_id = msg.get("roomId", "")
                 content = msg.get("content", "")
                 mentions = msg.get("mentions")
+                knowledge_scope = msg.get("knowledgeScope")
+
+                # Build optional RAG context for WS
+                rag_context = ""
+                if knowledge_scope:
+                    db = next(get_db())
+                    try:
+                        from .knowledge.rag_config import get_rag_settings
+                        from .knowledge.indexer import _get_embedding_provider
+                        from .knowledge.retriever import KnowledgeRetriever
+                        cfg = get_rag_settings(db)
+                        prov = _get_embedding_provider(db, model_encryptor, cfg)
+                        retriever = KnowledgeRetriever(
+                            provider=prov,
+                            persist_dir="data/memory",
+                            retrieval_mode=cfg.retrieval_mode,
+                            top_k=cfg.top_k,
+                            score_threshold=cfg.score_threshold,
+                            rerank_enabled=cfg.rerank_enabled,
+                            rerank_top_n=cfg.rerank_top_n,
+                        )
+                        where_filter = None
+                        if knowledge_scope.get("mode") == "selected" and knowledge_scope.get("directoryIds"):
+                            where_filter = {"file_path": {"$in": knowledge_scope["directoryIds"]}}
+                        results = await retriever.retrieve(content, where_filter=where_filter)
+                        if results:
+                            parts = [f"[文档片段 {i+1}] 来源: {r.file_name} ({r.file_path})\n{r.content}" for i, r in enumerate(results)]
+                            rag_context = "\n\n---\n\n".join(parts)
+                    finally:
+                        db.close()
+
+                enriched_content = content
+                if rag_context:
+                    enriched_content = (
+                        f"请基于以下知识库上下文回答问题。如果上下文中没有相关信息，请说明。\n\n"
+                        f"[知识库上下文]\n{rag_context}\n\n"
+                        f"[用户问题]\n{content}"
+                    )
 
                 # Group room: stream each responding agent with its own messageId
                 if group_chat_manager and room_id in group_chat_manager.group_chats:
@@ -561,7 +688,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         finally:
                             db.close()
                         agent_replies: Dict[str, str] = {}
-                        async for agent_id, chunk, message_id in group_chat_manager.stream_send(room_id, content, mentions):
+                        async for agent_id, chunk, message_id in group_chat_manager.stream_send(room_id, enriched_content, mentions):
                             agent_replies[agent_id] = agent_replies.get(agent_id, "") + chunk
                             await ws_manager.send_json(websocket, {
                                 "type": "chat.chunk",
@@ -598,7 +725,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         # True streaming: relay token chunks as they arrive
                         chunks = []
                         thinking_sent = False
-                        async for chunk in agent_manager.stream_message(room_id, content):
+                        async for chunk in agent_manager.stream_message(room_id, enriched_content):
                             if chunk.startswith("__MEMORY__:"):
                                 # Retrieved long-term memory -> chat.memory event
                                 try:
@@ -759,17 +886,7 @@ async def create_model(data: ModelConfigCreate, db: Session = Depends(get_db)):
     """Add a new model configuration with encrypted API key."""
     service = ModelManagementService(db, model_encryptor)
     try:
-        config = service.add_model_config(
-            model_type=data.model_type,
-            provider=data.provider,
-            model_name=data.model_name,
-            api_key=data.api_key,
-            base_url=data.base_url,
-            description=data.description,
-            is_default=data.is_default,
-            temperature=data.temperature,
-            max_tokens=data.max_tokens,
-        )
+        config = service.add_model_config(**data.dict())
         return service.get_config(config.id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -812,7 +929,7 @@ async def delete_model(model_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/models/{model_id}/test")
 async def test_model(model_id: int, db: Session = Depends(get_db)):
-    """Test a model configuration by sending a simple prompt."""
+    """Test a model configuration by sending a simple prompt or embedding."""
     import time
     service = ModelManagementService(db, model_encryptor)
     config = service.get_config(model_id)
@@ -825,11 +942,25 @@ async def test_model(model_id: int, db: Session = Depends(get_db)):
 
     provider = config["provider"]
     model_name = config["model_name"]
+    model_type = config.get("model_type", "llm")
     base_url = config.get("base_url")
 
     start = time.time()
 
     try:
+        # Embedding test
+        if model_type == "embedding":
+            # DashScope detection: explicit provider, qwen model name, or dashscope domain
+            is_dashscope = (
+                provider == "dashscope"
+                or "dashscope" in (base_url or "").lower()
+                or "qwen" in model_name.lower()
+            )
+            if is_dashscope:
+                return await _test_dashscope_embedding(api_key, model_name, base_url, start)
+            return await _test_openai_embedding(api_key, model_name, base_url, start)
+
+        # LLM / other chat test
         from openai import AsyncOpenAI
         client_kwargs = {"api_key": api_key}
         if base_url:
@@ -849,6 +980,42 @@ async def test_model(model_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         latency = round((time.time() - start) * 1000)
         return {"status": "error", "error": str(e), "latency_ms": latency}
+
+
+async def _test_dashscope_embedding(api_key: str, model_name: str, base_url: Optional[str], start: float):
+    import httpx
+    import time
+    base = (base_url or "https://dashscope.aliyuncs.com").rstrip("/")
+    # Avoid double /api/v1 if base_url already includes it
+    if base.endswith("/api/v1"):
+        url = base + "/services/embeddings/text-embedding/text-embedding"
+    else:
+        url = base + "/api/v1/services/embeddings/text-embedding/text-embedding"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model_name, "input": {"texts": ["测试文本，用于验证连接是否正常"]}},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        dim = len(data["output"]["embeddings"][0]["embedding"])
+        latency = round((time.time() - start) * 1000)
+        return {"status": "ok", "reply": f"连接成功，向量维度: {dim}", "latency_ms": latency}
+
+
+async def _test_openai_embedding(api_key: str, model_name: str, base_url: Optional[str], start: float):
+    import time
+    from openai import AsyncOpenAI
+    kwargs = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = AsyncOpenAI(**kwargs)
+    resp = await client.embeddings.create(model=model_name, input=["hello"])
+    dim = len(resp.data[0].embedding)
+    latency = round((time.time() - start) * 1000)
+    return {"status": "ok", "reply": f"连接成功，向量维度: {dim}", "latency_ms": latency}
 
 
 # ---- Tool Management API ----

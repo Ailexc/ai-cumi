@@ -21,6 +21,8 @@ import { ApprovalPanel } from './ApprovalPanel';
 import { TracingPanel } from './TracingPanel';
 import { WorkflowPanel } from './WorkflowPanel';
 import { DistributedPanel } from './DistributedPanel';
+import { CloudSpacePage } from './cloud-space/CloudSpacePage';
+import { RAGLabPage } from './rag-lab/RAGLabPage';
 import { getAgentMeta, formatTime, truncate } from './agentMeta';
 import type { Conv } from './Sidebar';
 
@@ -151,13 +153,19 @@ export function Workspace() {
       <AppRail
         active={activeNav}
         onSelect={(id) => {
-          if (id === 'chat' || id === 'members' || id === 'channels' || id === 'models' || id === 'tools' || id === 'approval' || id === 'tracing' || id === 'workflows' || id === 'distributed') setActiveNav(id);
+          if (['chat','members','cloud-space','knowledge','channels','models','tools','approval','tracing','workflows','distributed'].includes(id)) setActiveNav(id);
           setRosterOpen(false);
         }}
         onPlanned={(label) => showToast(`${label} · 规划中，敬请期待`)}
       />
 
-      {activeNav === 'members' ? (
+      {activeNav === 'cloud-space' ? (
+        /* ===== 云空间视图 ===== */
+        <CloudSpacePage />
+      ) : activeNav === 'knowledge' ? (
+        /* ===== RAG 实验室视图 ===== */
+        <RAGLabPage />
+      ) : activeNav === 'members' ? (
         /* ===== 成员管理视图 ===== */
         <MemberManagement
           members={convList}

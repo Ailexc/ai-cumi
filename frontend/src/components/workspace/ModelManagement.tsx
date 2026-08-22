@@ -17,6 +17,20 @@ interface ModelConfig {
   description: string | null;
   temperature: number | null;
   max_tokens: number | null;
+  // Capability / pricing fields
+  embedding_dimensions: number | null;
+  max_input_tokens: number | null;
+  max_output_tokens: number | null;
+  context_window: number | null;
+  supports_vision: boolean;
+  supports_function_calling: boolean;
+  supports_streaming: boolean;
+  price_per_1k_input_tokens: number | null;
+  price_per_1k_output_tokens: number | null;
+  rate_limit_rpm: number | null;
+  rate_limit_tpm: number | null;
+  rate_limit_tpd: number | null;
+  batch_size: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +54,7 @@ const PROVIDERS: Record<string, { value: string; label: string }[]> = {
   ],
   embedding: [
     { value: 'openai', label: 'OpenAI' },
+    { value: 'dashscope', label: 'DashScope (通义千问)' },
     { value: 'custom', label: '自定义' },
   ],
   vision: [
@@ -68,6 +83,7 @@ const PROVIDER_MODELS: Record<string, Record<string, string[]>> = {
   },
   embedding: {
     openai: ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
+    dashscope: ['qwen3.7-text-embedding'],
   },
   vision: {
     openai: ['gpt-4o', 'gpt-4o-mini'],
@@ -96,7 +112,24 @@ export function ModelManagement() {
     is_default: false,
     temperature: 0.7,
     max_tokens: 1024,
+    // Capability / pricing fields
+    embedding_dimensions: null as number | null,
+    max_input_tokens: null as number | null,
+    max_output_tokens: null as number | null,
+    context_window: null as number | null,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: true,
+    price_per_1k_input_tokens: null as number | null,
+    price_per_1k_output_tokens: null as number | null,
+    rate_limit_rpm: null as number | null,
+    rate_limit_tpm: null as number | null,
+    rate_limit_tpd: null as number | null,
+    batch_size: 32,
   });
+
+  const [expandCapability, setExpandCapability] = useState(false);
+  const [expandPricing, setExpandPricing] = useState(false);
 
   const fetchModels = useCallback(async () => {
     setLoading(true);
@@ -119,9 +152,16 @@ export function ModelManagement() {
       provider: PROVIDERS[activeType]?.[0]?.value || 'custom',
       model_name: '', api_key: '', base_url: '', description: '',
       is_default: false, temperature: 0.7, max_tokens: 1024,
+      embedding_dimensions: null, max_input_tokens: null, max_output_tokens: null,
+      context_window: null, supports_vision: false, supports_function_calling: false,
+      supports_streaming: true, price_per_1k_input_tokens: null,
+      price_per_1k_output_tokens: null, rate_limit_rpm: null,
+      rate_limit_tpm: null, rate_limit_tpd: null, batch_size: 32,
     });
     setEditingId(null);
     setShowForm(false);
+    setExpandCapability(false);
+    setExpandPricing(false);
     setError('');
   };
 
@@ -133,8 +173,16 @@ export function ModelManagement() {
     try {
       const url = editingId ? `/api/models/${editingId}` : '/api/models';
       const method = editingId ? 'PUT' : 'POST';
-      const body: Record<string, unknown> = { ...form };
-      if (editingId && !form.api_key) delete body.api_key;
+      const body: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(form)) {
+        if (v === null || v === undefined || v === '') continue;
+        if (k === 'api_key' && editingId && !v) continue;
+        body[k] = v;
+      }
+      // Always include booleans
+      body.supports_vision = form.supports_vision;
+      body.supports_function_calling = form.supports_function_calling;
+      body.supports_streaming = form.supports_streaming;
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!res.ok) { const err = await res.json(); throw new Error(err.detail || '操作失败'); }
       resetForm();
@@ -173,10 +221,25 @@ export function ModelManagement() {
       is_default: m.is_default,
       temperature: m.temperature || 0.7,
       max_tokens: m.max_tokens || 1024,
+      embedding_dimensions: m.embedding_dimensions,
+      max_input_tokens: m.max_input_tokens,
+      max_output_tokens: m.max_output_tokens,
+      context_window: m.context_window,
+      supports_vision: m.supports_vision,
+      supports_function_calling: m.supports_function_calling,
+      supports_streaming: m.supports_streaming,
+      price_per_1k_input_tokens: m.price_per_1k_input_tokens,
+      price_per_1k_output_tokens: m.price_per_1k_output_tokens,
+      rate_limit_rpm: m.rate_limit_rpm,
+      rate_limit_tpm: m.rate_limit_tpm,
+      rate_limit_tpd: m.rate_limit_tpd,
+      batch_size: m.batch_size ?? 32,
     });
     setEditingId(m.id);
     setShowForm(true);
     setActiveType(m.model_type);
+    setExpandCapability(true);
+    setExpandPricing(true);
   };
 
   const currentModels = modelsByType[activeType] || [];
@@ -365,6 +428,57 @@ export function ModelManagement() {
               </>
             )}
 
+            {/* 能力参数 */}
+            <div className="col-span-2">
+              <button
+                type="button"
+                onClick={() => setExpandCapability(!expandCapability)}
+                className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-medium hover:bg-muted/50"
+              >
+                <span>能力参数</span>
+                <span>{expandCapability ? '▲' : '▼'}</span>
+              </button>
+              {expandCapability && (
+                <div className="mt-2 grid grid-cols-2 gap-3 rounded-lg border border-border bg-surface p-3">
+                  {form.model_type === 'embedding' && (
+                    <NumberField label="向量维度" value={form.embedding_dimensions} onChange={(v) => setForm({ ...form, embedding_dimensions: v })} />
+                  )}
+                  <NumberField label="最大输入长度 (tokens)" value={form.max_input_tokens} onChange={(v) => setForm({ ...form, max_input_tokens: v })} />
+                  <NumberField label="最大输出长度 (tokens)" value={form.max_output_tokens} onChange={(v) => setForm({ ...form, max_output_tokens: v })} />
+                  <NumberField label="上下文窗口 (tokens)" value={form.context_window} onChange={(v) => setForm({ ...form, context_window: v })} />
+                  <div className="col-span-2 flex flex-wrap gap-4">
+                    <CheckboxField label="支持视觉" checked={form.supports_vision} onChange={(v) => setForm({ ...form, supports_vision: v })} />
+                    <CheckboxField label="支持工具调用" checked={form.supports_function_calling} onChange={(v) => setForm({ ...form, supports_function_calling: v })} />
+                    <CheckboxField label="支持流式输出" checked={form.supports_streaming} onChange={(v) => setForm({ ...form, supports_streaming: v })} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 计费限量 */}
+            <div className="col-span-2">
+              <button
+                type="button"
+                onClick={() => setExpandPricing(!expandPricing)}
+                className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-medium hover:bg-muted/50"
+              >
+                <span>计费限量</span>
+                <span>{expandPricing ? '▲' : '▼'}</span>
+              </button>
+              {expandPricing && (
+                <div className="mt-2 grid grid-cols-2 gap-3 rounded-lg border border-border bg-surface p-3">
+                  <NumberField label="输入单价（元/1K tokens）" step={0.0001} value={form.price_per_1k_input_tokens} onChange={(v) => setForm({ ...form, price_per_1k_input_tokens: v })} />
+                  <NumberField label="输出单价（元/1K tokens）" step={0.0001} value={form.price_per_1k_output_tokens} onChange={(v) => setForm({ ...form, price_per_1k_output_tokens: v })} />
+                  <NumberField label="RPM" value={form.rate_limit_rpm} onChange={(v) => setForm({ ...form, rate_limit_rpm: v })} />
+                  <NumberField label="TPM" value={form.rate_limit_tpm} onChange={(v) => setForm({ ...form, rate_limit_tpm: v })} />
+                  <NumberField label="TPD" value={form.rate_limit_tpd} onChange={(v) => setForm({ ...form, rate_limit_tpd: v })} />
+                  {form.model_type === 'embedding' && (
+                    <NumberField label="批处理大小" value={form.batch_size} onChange={(v) => setForm({ ...form, batch_size: v ?? 32 })} />
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* 设为默认 */}
             <div className="col-span-2 flex items-center gap-2">
               <input
@@ -490,5 +604,37 @@ export function ModelManagement() {
         )}
       </div>
     </div>
+  );
+}
+
+function NumberField({ label, value, onChange, step = 1 }: { label: string; value: number | null; onChange: (v: number | null) => void; step?: number }) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <input
+        type="number"
+        step={step}
+        value={value ?? ''}
+        onChange={(e) => {
+          const raw = e.target.value;
+          onChange(raw === '' ? null : parseFloat(raw));
+        }}
+        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+      />
+    </div>
+  );
+}
+
+function CheckboxField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="rounded"
+      />
+      <span>{label}</span>
+    </label>
   );
 }
