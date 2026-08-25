@@ -42,58 +42,41 @@ def web_search(
     query: Annotated[str, "搜索关键词"],
     num_results: Annotated[int, "返回结果数（默认 5）"] = 5,
 ) -> str:
-    """Search the web using a search API."""
-    # Try to use Serper API if available
-    api_key = os.getenv("SERPER_API_KEY")
-    if api_key:
-        return _search_with_serper(query, num_results, api_key)
-    
-    # Fallback to a simple mock for demo purposes
-    return json.dumps({
-        "query": query,
-        "results": [
-            {
-                "title": f"Search result {i+1} for: {query}",
-                "url": f"https://example.com/result-{i+1}",
-                "snippet": f"This is a sample search result for '{query}'. In production, this would contain real search results from a search API like Serper, Bing, or Google."
-            }
-            for i in range(min(num_results, 3))
-        ],
-        "note": "Configure SERPER_API_KEY environment variable for real search results"
-    }, ensure_ascii=False, indent=2)
+    """Search the web via the configured default search provider.
 
-
-def _search_with_serper(query: str, num_results: int, api_key: str) -> str:
-    """Search using Serper API."""
-    import httpx
-    
+    Resolution order: default ``search`` model config (DB) → SERPER_API_KEY
+    env var. On failure, returns an honest error — never fabricated results.
+    """
+    provider = None
     try:
-        response = httpx.post(
-            "https://google.serper.dev/search",
-            json={"q": query, "num": num_results},
-            headers={"X-API-KEY": api_key},
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        results = []
-        for item in data.get("organic", [])[:num_results]:
-            results.append({
-                "title": item.get("title", ""),
-                "url": item.get("link", ""),
-                "snippet": item.get("snippet", ""),
-            })
-        
+        from ..search import SearchError, get_default_provider
+        try:
+            provider = get_default_provider()
+        except SearchError as e:
+            # DB 未配置时回退到环境变量 Serper（保持向后兼容）
+            api_key = os.getenv("SERPER_API_KEY")
+            if not api_key:
+                return json.dumps({"error": str(e)}, ensure_ascii=False)
+            from ..search import create_provider
+            provider = create_provider(
+                endpoint="https://google.serper.dev/search", api_key=api_key,
+            )
+        results = provider.search(query, num_results)
+        if not results:
+            return json.dumps(
+                {"error": f"搜索服务（{provider.name}）未返回任何结果", "query": query},
+                ensure_ascii=False,
+            )
         return json.dumps({
             "query": query,
-            "results": results,
+            "provider": provider.name,
+            "results": [r.to_dict() for r in results],
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({
-            "error": f"Search failed: {str(e)}",
-            "query": query,
-        })
+        return json.dumps(
+            {"error": f"搜索失败: {e}", "query": query},
+            ensure_ascii=False,
+        )
 
 
 # ============================================================================

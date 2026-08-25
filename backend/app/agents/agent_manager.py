@@ -361,6 +361,36 @@ class AgentManager:
 
     # ---- Messaging ----
 
+    # Short-term conversation window: how many recent turns are replayed to
+    # the model before the current message. Long-term memory covers facts
+    # across sessions; this window covers within-session coherence ("把上面
+    # 那段展开讲讲").
+    HISTORY_WINDOW_TURNS = 10
+
+    @staticmethod
+    def _build_message_list(
+        enriched_message: str,
+        history: Optional[List[Dict]] = None,
+    ) -> List[Any]:
+        """Build the AG2 message list: recent turns + current message last.
+
+        ``history`` items are raw DB rows shaped like {"role", "content"}.
+        Noise (empty content, error placeholders) is dropped.
+        """
+        msgs: List[Any] = []
+        for h in (history or [])[-AgentManager.HISTORY_WINDOW_TURNS:]:
+            content = (h.get("content") or "").strip()
+            role = h.get("role")
+            if not content or content.startswith("[Agent") or content.startswith("[模型服务"):
+                continue
+            source = "user" if role == "user" else "assistant"
+            try:
+                msgs.append(TextMessage(content=content, source=source))
+            except Exception:
+                continue
+        msgs.append(TextMessage(content=enriched_message, source="user"))
+        return msgs
+
     async def send_message(
         self,
         agent_id: str,
@@ -372,6 +402,8 @@ class AgentManager:
 
         When ``use_memory`` is on, relevant long-term memories are retrieved and
         injected into the message context before the agent responds.
+        ``conversation_history`` carries recent turns ({"role","content"}) that
+        are replayed before the current message for within-session coherence.
         """
         if agent_id not in self.agents:
             raise ValueError(f"Agent {agent_id} not found")
@@ -394,7 +426,7 @@ class AgentManager:
                     trace.id, TraceEventType.MODEL_CALL, agent_id,
                     {"mode": "real", "message": message[:100]},
                 )
-                return await self._real_respond(agent_id, enriched)
+                return await self._real_respond(agent_id, self._build_message_list(enriched, conversation_history))
             return await self._mock_respond(agent_id, enriched)
         finally:
             try:
@@ -407,6 +439,7 @@ class AgentManager:
         agent_id: str,
         message: str,
         use_memory: bool = True,
+        history: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[str, None]:
         """Stream an agent's response as token chunks (for WebSocket).
 
@@ -415,8 +448,8 @@ class AgentManager:
         - ``__MEMORY__:<json>`` — retrieved memories injected into the context
           (emitted before the first chunk when ``use_memory`` is on).
 
-        The WS handler translates these into ``chat.thinking`` / ``chat.memory``
-        events for the frontend.
+        ``history`` carries recent turns ({"role","content"}) replayed before
+        the current message for within-session coherence.
         """
         if agent_id not in self.agents:
             raise ValueError(f"Agent {agent_id} not found")
@@ -441,7 +474,8 @@ class AgentManager:
                     trace.id, TraceEventType.MODEL_CALL, agent_id,
                     {"mode": "real", "message": message[:100]},
                 )
-                async for chunk in self._real_stream(agent_id, enriched):
+                messages = self._build_message_list(enriched, history)
+                async for chunk in self._real_stream(agent_id, messages):
                     yield chunk
             else:
                 # Mock: yield the whole canned reply as a single chunk
@@ -577,8 +611,11 @@ class AgentManager:
             return True
         return False
 
-    async def _real_stream_once(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
+    async def _real_stream_once(self, agent_id: str, message: Any) -> AsyncGenerator[str, None]:
         """Single-shot streaming implementation (retried by ``_real_stream``).
+
+        ``message`` is either a plain string (single user turn) or a list of
+        AG2 TextMessage objects (short-term history + current turn).
 
         Strips the model's internal thinking so users only see the final answer.
         Two formats are handled:
@@ -596,6 +633,9 @@ class AgentManager:
             yield f"[Agent {agent_id} 未初始化]"
             return
 
+        if isinstance(message, str):
+            message = [TextMessage(content=message, source="user")]
+
         cancellation_token = CancellationToken()
         first_chunk = True
         in_reasoning = False          # AG2 " thinking" ... " response" mode
@@ -605,7 +645,7 @@ class AgentManager:
 
         try:
             async for event in agent.on_messages_stream(
-                [TextMessage(content=message, source="user")],
+                message,
                 cancellation_token,
             ):
                 # Capture AG2's final Response event as fallback
@@ -679,8 +719,11 @@ class AgentManager:
                     print(f"⚠️ real stream retry failed for {agent_id}: {e2}")
             yield "\n\n[模型服务暂时不可用，请稍后重试]"
 
-    async def _real_respond(self, agent_id: str, message: str) -> str:
+    async def _real_respond(self, agent_id: str, message: Any) -> str:
         """Send message to a real AG2 agent and return the full reply.
+
+        ``message`` is a plain string or a list of AG2 TextMessage objects
+        (short-term history + current turn).
 
         Uses the final `Response` event from `on_messages_stream` — AG2 separates
         reasoning from the answer, so no manual thinking-stripping is needed and
@@ -690,9 +733,11 @@ class AgentManager:
         agent = self.agent_instances.get(agent_id)
         if agent is None:
             return f"[Agent {agent_id} 未初始化]"
+        if isinstance(message, str):
+            message = [TextMessage(content=message, source="user")]
         try:
             async for event in agent.on_messages_stream(
-                [TextMessage(content=message, source="user")],
+                message,
                 CancellationToken(),
             ):
                 if isinstance(event, ModelClientStreamingChunkEvent):
@@ -945,12 +990,14 @@ class GroupChatManager:
         room_id: str,
         message: str,
         mentions: Optional[List[str]] = None,
+        history: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[tuple, None]:
         """
         Stream group chat responses. Yields (agent_id, chunk, message_id) tuples.
 
         Each responding agent gets its own message_id so the frontend can render
-        them as separate messages.
+        them as separate messages. ``history`` carries recent room turns so every
+        responding agent shares the same within-session context.
         """
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
@@ -960,7 +1007,7 @@ class GroupChatManager:
             try:
                 # use_memory=False: group replies shouldn't embed the __MEMORY__
                 # sentinel (DM-only memory injection keeps the group protocol clean).
-                async for chunk in self.agent_manager.stream_message(agent_id, message, use_memory=False):
+                async for chunk in self.agent_manager.stream_message(agent_id, message, use_memory=False, history=history):
                     yield (agent_id, chunk, message_id)
             except Exception as e:
                 print(f"⚠️ group stream error for {agent_id}: {e}")

@@ -25,6 +25,7 @@ from .api import channels as channels_router
 from .cloud_space import router as cloud_space_router
 from .knowledge import router as knowledge_router
 from .settings import router as settings_router
+from .docs import router as docs_router
 from .chat.websocket_manager import WebSocketManager
 from .config import settings
 from .database import init_db, get_db
@@ -244,6 +245,7 @@ app.include_router(channels_router.router)
 app.include_router(cloud_space_router)
 app.include_router(knowledge_router)
 app.include_router(settings_router)
+app.include_router(docs_router)
 
 
 # Pydantic models
@@ -519,10 +521,18 @@ async def send_message(message: ChatMessage):
             )
 
         if message.room_type == "dm":
+            # Load short-term history BEFORE persisting the current turn
+            db = next(get_db())
+            try:
+                history_rows = load_history(db, message.room_id, limit=agent_manager.HISTORY_WINDOW_TURNS)
+            finally:
+                db.close()
+            history = [{"role": m.role, "content": m.content} for m in history_rows]
             # Direct message to single agent
             response = await agent_manager.send_message(
                 agent_id=message.room_id,
                 message=user_message,
+                conversation_history=history,
             )
             # Persist user + assistant messages
             db = next(get_db())
@@ -681,6 +691,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Group room: stream each responding agent with its own messageId
                 if group_chat_manager and room_id in group_chat_manager.group_chats:
                     try:
+                        # Load short-term history BEFORE saving the current turn
+                        db = next(get_db())
+                        try:
+                            history_rows = load_history(db, room_id, limit=agent_manager.HISTORY_WINDOW_TURNS if agent_manager else 10)
+                        finally:
+                            db.close()
+                        history = [{"role": m.role, "content": m.content} for m in history_rows]
                         # Persist the user message
                         db = next(get_db())
                         try:
@@ -688,7 +705,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         finally:
                             db.close()
                         agent_replies: Dict[str, str] = {}
-                        async for agent_id, chunk, message_id in group_chat_manager.stream_send(room_id, enriched_content, mentions):
+                        async for agent_id, chunk, message_id in group_chat_manager.stream_send(room_id, enriched_content, mentions, history=history):
                             agent_replies[agent_id] = agent_replies.get(agent_id, "") + chunk
                             await ws_manager.send_json(websocket, {
                                 "type": "chat.chunk",
@@ -716,6 +733,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif agent_manager and room_id in agent_manager.agents:
                     try:
                         message_id = str(uuid.uuid4())
+                        # Load short-term history BEFORE saving the current turn
+                        db = next(get_db())
+                        try:
+                            history_rows = load_history(db, room_id, limit=agent_manager.HISTORY_WINDOW_TURNS)
+                        finally:
+                            db.close()
+                        history = [{"role": m.role, "content": m.content} for m in history_rows]
                         # Persist the user message
                         db = next(get_db())
                         try:
@@ -725,7 +749,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         # True streaming: relay token chunks as they arrive
                         chunks = []
                         thinking_sent = False
-                        async for chunk in agent_manager.stream_message(room_id, enriched_content):
+                        async for chunk in agent_manager.stream_message(room_id, enriched_content, history=history):
                             if chunk.startswith("__MEMORY__:"):
                                 # Retrieved long-term memory -> chat.memory event
                                 try:
@@ -929,7 +953,7 @@ async def delete_model(model_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/models/{model_id}/test")
 async def test_model(model_id: int, db: Session = Depends(get_db)):
-    """Test a model configuration by sending a simple prompt or embedding."""
+    """Test a model configuration (dispatched by model_type via model_tester)."""
     import time
     service = ModelManagementService(db, model_encryptor)
     config = service.get_config(model_id)
@@ -940,82 +964,13 @@ async def test_model(model_id: int, db: Session = Depends(get_db)):
     if not api_key:
         raise HTTPException(status_code=400, detail="Cannot decrypt API key")
 
-    provider = config["provider"]
-    model_name = config["model_name"]
-    model_type = config.get("model_type", "llm")
-    base_url = config.get("base_url")
-
-    start = time.time()
-
-    try:
-        # Embedding test
-        if model_type == "embedding":
-            # DashScope detection: explicit provider, qwen model name, or dashscope domain
-            is_dashscope = (
-                provider == "dashscope"
-                or "dashscope" in (base_url or "").lower()
-                or "qwen" in model_name.lower()
-            )
-            if is_dashscope:
-                return await _test_dashscope_embedding(api_key, model_name, base_url, start)
-            return await _test_openai_embedding(api_key, model_name, base_url, start)
-
-        # LLM / other chat test
-        from openai import AsyncOpenAI
-        client_kwargs = {"api_key": api_key}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        elif provider == "anthropic":
-            client_kwargs["base_url"] = "https://api.anthropic.com/v1"
-
-        client = AsyncOpenAI(**client_kwargs)
-        resp = await client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": "Say 'hello' in one word."}],
-            max_tokens=10,
-        )
-        reply = resp.choices[0].message.content.strip()
-        latency = round((time.time() - start) * 1000)
-        return {"status": "ok", "reply": reply, "latency_ms": latency}
-    except Exception as e:
-        latency = round((time.time() - start) * 1000)
-        return {"status": "error", "error": str(e), "latency_ms": latency}
-
-
-async def _test_dashscope_embedding(api_key: str, model_name: str, base_url: Optional[str], start: float):
-    import httpx
-    import time
-    base = (base_url or "https://dashscope.aliyuncs.com").rstrip("/")
-    # Avoid double /api/v1 if base_url already includes it
-    if base.endswith("/api/v1"):
-        url = base + "/services/embeddings/text-embedding/text-embedding"
-    else:
-        url = base + "/api/v1/services/embeddings/text-embedding/text-embedding"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            url,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model_name, "input": {"texts": ["测试文本，用于验证连接是否正常"]}},
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        dim = len(data["output"]["embeddings"][0]["embedding"])
-        latency = round((time.time() - start) * 1000)
-        return {"status": "ok", "reply": f"连接成功，向量维度: {dim}", "latency_ms": latency}
-
-
-async def _test_openai_embedding(api_key: str, model_name: str, base_url: Optional[str], start: float):
-    import time
-    from openai import AsyncOpenAI
-    kwargs = {"api_key": api_key}
-    if base_url:
-        kwargs["base_url"] = base_url
-    client = AsyncOpenAI(**kwargs)
-    resp = await client.embeddings.create(model=model_name, input=["hello"])
-    dim = len(resp.data[0].embedding)
-    latency = round((time.time() - start) * 1000)
-    return {"status": "ok", "reply": f"连接成功，向量维度: {dim}", "latency_ms": latency}
+    from .services.model_tester import run_model_test
+    return await run_model_test(
+        model_type=config.get("model_type", "llm"),
+        api_key=api_key,
+        config=config,
+        start=time.time(),
+    )
 
 
 # ---- Tool Management API ----
