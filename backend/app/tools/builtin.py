@@ -8,7 +8,7 @@ import os
 import json
 import subprocess
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal, Annotated
 from datetime import datetime
 
 from .registry import tool_registry, ToolParameter
@@ -38,7 +38,10 @@ from .registry import tool_registry, ToolParameter
         ),
     ],
 )
-def web_search(query: str, num_results: int = 5) -> str:
+def web_search(
+    query: Annotated[str, "搜索关键词"],
+    num_results: Annotated[int, "返回结果数（默认 5）"] = 5,
+) -> str:
     """Search the web using a search API."""
     # Try to use Serper API if available
     api_key = os.getenv("SERPER_API_KEY")
@@ -117,7 +120,10 @@ def _search_with_serper(query: str, num_results: int, api_key: str) -> str:
         ),
     ],
 )
-def code_execute(code: str, timeout: int = 30) -> str:
+def code_execute(
+    code: Annotated[str, "要执行的 Python 代码"],
+    timeout: Annotated[int, "执行超时秒数（默认 30）"] = 30,
+) -> str:
     """Execute Python code in a subprocess."""
     try:
         # Create a temporary file for the code
@@ -182,7 +188,10 @@ def code_execute(code: str, timeout: int = 30) -> str:
         ),
     ],
 )
-def file_read(file_path: str, encoding: str = "utf-8") -> str:
+def file_read(
+    file_path: Annotated[str, "要读取的文件路径"],
+    encoding: Annotated[str, "文件编码（默认 utf-8）"] = "utf-8",
+) -> str:
     """Read file contents."""
     try:
         # Security: Only allow reading from workspace directory
@@ -241,7 +250,11 @@ def file_read(file_path: str, encoding: str = "utf-8") -> str:
         ),
     ],
 )
-def file_write(file_path: str, content: str, encoding: str = "utf-8") -> str:
+def file_write(
+    file_path: Annotated[str, "要写入的文件路径"],
+    content: Annotated[str, "要写入的文件内容"],
+    encoding: Annotated[str, "文件编码（默认 utf-8）"] = "utf-8",
+) -> str:
     """Write content to a file."""
     try:
         # Security: Only allow writing to workspace directory
@@ -289,7 +302,7 @@ def file_write(file_path: str, content: str, encoding: str = "utf-8") -> str:
         ),
     ],
 )
-def json_parse(data: str) -> str:
+def json_parse(data: Annotated[str, "要解析的 JSON 字符串"]) -> str:
     """Parse JSON data."""
     try:
         parsed = json.loads(data)
@@ -332,7 +345,11 @@ def json_parse(data: str) -> str:
         ),
     ],
 )
-def datetime_utils(action: str, value: Optional[str] = None, format: str = "%Y-%m-%d %H:%M:%S") -> str:
+def datetime_utils(
+    action: Literal["now", "format", "parse"],
+    value: Annotated[Optional[str], "要格式化的时间戳或要解析的日期串（format/parse 必填）"] = None,
+    format: Annotated[str, "日期格式（默认 %Y-%m-%d %H:%M:%S）"] = "%Y-%m-%d %H:%M:%S",
+) -> str:
     """Date/time utility functions."""
     try:
         if action == "now":

@@ -41,6 +41,38 @@ from ..tools.registry import tool_registry
 from ..tools.builtin import register_builtin_tools
 
 
+# ---------------------------------------------------------------------------
+# Tool-use policy: injected into every real agent's system message as a guard
+# so tool behaviour is a product contract instead of the model's free choice.
+# ---------------------------------------------------------------------------
+TOOL_USE_POLICY = (
+    "工具使用准则：\n"
+    "1. 只有用户需求确实需要时才调用工具；日常寒暄、打招呼等无需调用工具。\n"
+    "2. 工具返回的是结构化结果，必须用自然语言向用户转述，禁止把 JSON 直接发给用户。\n"
+    "3. 工具调用失败时，用自然语言向用户友好说明，不要回显原始错误。\n"
+)
+
+
+def _is_memory_noise(content: str) -> bool:
+    """Whether a piece of text should NOT be persisted into long-term memory.
+
+    Filters: empty text, model-call failure markers, and raw tool outputs
+    (any content that is a parseable JSON object/array).
+    """
+    s = (content or "").strip()
+    if not s:
+        return True
+    if s.startswith("[Agent 调用出错") or "Unknown action" in s:
+        return True
+    if s[:1] in ("{", "["):
+        try:
+            json.loads(s)
+            return True
+        except Exception:
+            pass
+    return False
+
+
 # Default model info for unknown/custom model names (used when the client cannot
 # resolve model_info automatically, e.g. self-hosted / fake endpoints).
 DEFAULT_MODEL_INFO = ModelInfo(
@@ -191,13 +223,17 @@ class AgentManager:
         if tool_names and HAS_REAL_AGENT:
             agent_tools = tool_registry.get_ag2_tools(tool_names)
         
+        system_message = (info.get("persona") or "").strip()
+        system_message = f"{system_message}\n\n{TOOL_USE_POLICY}" if system_message else TOOL_USE_POLICY
+
         return AssistantAgent(
             name=name or agent_id,
             model_client=client,
             model_client_stream=self.model_client_stream,
-            system_message=info.get("persona") or "",
+            system_message=system_message,
             description=f"{info.get('name', agent_id)} - {info.get('role', 'assistant')}",
             tools=agent_tools if agent_tools else [],
+            reflect_on_tool_use=True,   # 工具执行后强制二次推理 → 把结构化结果转述为自然语言
         )
 
     async def rebuild_agent(self, agent_id: str) -> Optional[Any]:
@@ -469,12 +505,12 @@ class AgentManager:
             from ..memory import vector_memory
             if vector_memory is None:
                 return
-            if user_message and user_message.strip():
+            if user_message and user_message.strip() and not _is_memory_noise(user_message):
                 await asyncio.to_thread(
                     vector_memory.add, user_message, agent_id, "conversation",
                     {"role": "user"},
                 )
-            if assistant_reply and assistant_reply.strip():
+            if assistant_reply and assistant_reply.strip() and not _is_memory_noise(assistant_reply):
                 await asyncio.to_thread(
                     vector_memory.add, assistant_reply, agent_id, "conversation",
                     {"role": "assistant"},
@@ -517,8 +553,32 @@ class AgentManager:
             i = c + len("</think>")
         return "".join(out) if out else None
 
-    async def _real_stream(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
-        """Stream real model output for an agent, chunk by chunk.
+    @staticmethod
+    def _looks_like_raw_tool_result(content: str) -> bool:
+        """Whether the content looks like a raw tool output (a JSON object/array)."""
+        s = (content or "").strip()
+        if not s or s[:1] not in ("{", "["):
+            return False
+        try:
+            json.loads(s)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_transient_network_error(e: Exception) -> bool:
+        """Whether the exception looks like a transient upstream stream failure."""
+        name = type(e).__name__
+        if name in ("RemoteProtocolError", "ReadError", "ConnectError",
+                    "ReadTimeout", "ConnectTimeout", "APIConnectionError"):
+            return True
+        msg = str(e)
+        if "peer closed connection" in msg or "incomplete chunked read" in msg:
+            return True
+        return False
+
+    async def _real_stream_once(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
+        """Single-shot streaming implementation (retried by ``_real_stream``).
 
         Strips the model's internal thinking so users only see the final answer.
         Two formats are handled:
@@ -540,12 +600,19 @@ class AgentManager:
         first_chunk = True
         in_reasoning = False          # AG2 " thinking" ... " response" mode
         tag_state = {"open": False, "buffer": ""}   # <think> ... </think> mode
+        streamed_chars = 0           # total chars yielded to caller
+        fallback_content = ""        # AG2 Response event's final answer
 
         try:
             async for event in agent.on_messages_stream(
                 [TextMessage(content=message, source="user")],
                 cancellation_token,
             ):
+                # Capture AG2's final Response event as fallback
+                if hasattr(event, "chat_message"):
+                    fallback_content = getattr(event.chat_message, "content", "") or ""
+                    continue
+
                 if not isinstance(event, ModelClientStreamingChunkEvent):
                     continue
 
@@ -579,10 +646,38 @@ class AgentManager:
                         continue
 
                 if content:
+                    streamed_chars += len(content)
                     yield content
+
+            # Fallback: if all streaming content was reasoning (stripped),
+            # use AG2's Response event answer instead of sending empty reply.
+            if streamed_chars == 0 and fallback_content:
+                if self._looks_like_raw_tool_result(fallback_content):
+                    # 防御：即使工具结果没有被转述，也绝不把裸 JSON 直通用户
+                    yield "\n\n（已获取结果，但模型未能生成自然语言总结，请稍后再试或换个问法）"
+                else:
+                    yield fallback_content
+
         except Exception as e:
             print(f"⚠️ real stream error for {agent_id}: {e}")
-            yield f"\n\n[Agent 调用出错: {type(e).__name__}: {e}]"
+            raise
+
+    async def _real_stream(self, agent_id: str, message: str) -> AsyncGenerator[str, None]:
+        """Stream real model output with transient upstream retry + friendly errors."""
+        try:
+            async for chunk in self._real_stream_once(agent_id, message):
+                yield chunk
+        except Exception as e:
+            print(f"⚠️ real stream error for {agent_id}: {e}")
+            if self._is_transient_network_error(e):
+                # 上游瞬时断连：自动重试一次（整轮重发）
+                try:
+                    async for chunk in self._real_stream_once(agent_id, message):
+                        yield chunk
+                    return
+                except Exception as e2:
+                    print(f"⚠️ real stream retry failed for {agent_id}: {e2}")
+            yield "\n\n[模型服务暂时不可用，请稍后重试]"
 
     async def _real_respond(self, agent_id: str, message: str) -> str:
         """Send message to a real AG2 agent and return the full reply.

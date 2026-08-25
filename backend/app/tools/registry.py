@@ -89,6 +89,8 @@ class ToolRegistry:
         def decorator(func: Callable) -> Callable:
             # Auto-generate parameters from function signature if not provided
             tool_params = parameters or self._infer_parameters(func)
+            # 一致性校验：ToolParameter 声明的参数必须存在于函数签名中（防 schema 漂移）
+            self._validate_tool_schema(tool_params, func, name)
             
             tool_def = ToolDefinition(
                 name=name,
@@ -100,6 +102,26 @@ class ToolRegistry:
             self._tools[name] = tool_def
             return func
         return decorator
+
+    def _validate_tool_schema(
+        self, tool_params: List[ToolParameter], func: Callable, tool_name: str
+    ) -> None:
+        """Guard against schema drift: every ToolParameter must exist in the
+        function signature (so the AG2-generated runtime schema stays aligned
+        with the management-side metadata)."""
+        if not tool_params or func is None:
+            return
+        try:
+            sig = inspect.signature(func)
+            param_names = set(sig.parameters.keys())
+            for p in tool_params:
+                if p.name not in param_names:
+                    print(
+                        f"⚠️ Tool schema drift: {tool_name}.{p.name} "
+                        f"不在函数签名 {sorted(param_names)} 中"
+                    )
+        except (TypeError, ValueError):
+            pass
     
     def register_tool(self, tool_def: ToolDefinition) -> None:
         """Register a tool from a ToolDefinition object."""
