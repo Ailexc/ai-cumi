@@ -125,6 +125,10 @@ class ModelManagementService:
         if not config:
             return None
         
+        # API 层字段名为 is_default，ORM 列名为 default_model —— 统一归一化
+        if "is_default" in kwargs:
+            kwargs["default_model"] = kwargs.pop("is_default")
+        
         # If setting as default, unset other defaults of the same type
         if kwargs.get("default_model"):
             self.db.query(ModelConfig).filter(

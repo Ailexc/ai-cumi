@@ -60,6 +60,10 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """OpenAI-compatible embedding endpoint."""
 
+    # Conservative batch size: DashScope compatible-mode limits
+    # qwen3.7-text-embedding to 20 texts per request.
+    BATCH_SIZE = 20
+
     def __init__(self, api_key: str, model: str = "text-embedding-3-small", base_url: str | None = None):
         self.api_key = api_key
         self.model = model
@@ -76,8 +80,14 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     async def embed(self, texts: List[str]) -> List[List[float]]:
         if not self.client:
             raise RuntimeError("openai not installed")
-        resp = await self.client.embeddings.create(model=self.model, input=texts)
-        return [d.embedding for d in resp.data]
+        all_embeddings: List[List[float]] = []
+        for i in range(0, len(texts), self.BATCH_SIZE):
+            batch = texts[i : i + self.BATCH_SIZE]
+            resp = await self.client.embeddings.create(model=self.model, input=batch)
+            # Sort by index to preserve order across batches
+            ordered = sorted(resp.data, key=lambda d: d.index)
+            all_embeddings.extend(d.embedding for d in ordered)
+        return all_embeddings
 
     def dimensions(self) -> int:
         # best guess; not critical for runtime

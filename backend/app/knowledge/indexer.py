@@ -33,10 +33,18 @@ def _get_chroma_client(persist_dir: str = "data/memory"):
 
 
 def _is_dashscope_model(model: dict) -> bool:
-    """Detect DashScope/qwen embedding models regardless of provider field."""
+    """Detect DashScope NATIVE-protocol embedding models.
+
+    OpenAI-compatible endpoints (base_url containing "compatible-mode") must
+    NOT match: they speak the standard OpenAI /embeddings protocol and must be
+    served by OpenAIEmbeddingProvider. Routing them to DashScopeEmbeddingProvider
+    would construct an invalid URL (.../compatible-mode/v1/api/v1/services/...).
+    """
+    base_url = (model.get("base_url") or "").lower()
+    if "compatible-mode" in base_url:
+        return False
     provider = (model.get("provider") or "").lower()
     model_name = (model.get("model_name") or "").lower()
-    base_url = (model.get("base_url") or "").lower()
     return (
         provider == "dashscope"
         or "dashscope" in base_url
