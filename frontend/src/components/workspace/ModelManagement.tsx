@@ -299,7 +299,7 @@ export function ModelManagement() {
 
       {/* Form */}
       {showForm && (
-        <div className="mx-6 mt-4 rounded-xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mx-6 mt-4 max-h-[62vh] shrink-0 overflow-y-auto rounded-xl border border-border bg-surface p-5 shadow-sm">
           <h3 className="mb-3 text-sm font-medium text-foreground">
             {editingId ? '编辑模型' : '添加新模型'} — {MODEL_TYPES.find(t => t.value === form.model_type)?.label}
           </h3>
