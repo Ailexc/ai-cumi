@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="复盘：单一数据源双轨制问题">
+<meta name="doc:category" content="问题复盘">
+<meta name="doc:order" content="1">
+<meta name="doc:description" content="同一天内两次踩中同一架构病：工具 schema 双轨制（模型拿到劣化定义导致裸 JSON 事故）与嵌入调用双轨制（改配置必坏一边）。根因、修复、方法论与预防清单">
+<meta name="doc:icon" content="git-branch">
+<title>问题复盘 · 单一数据源双轨制</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.hero{background:linear-gradient(135deg,#b45309,#e11d48);color:#fff;border-radius:18px;padding:28px 32px;margin-bottom:28px}
+.hero h1{color:#fff}
+.hero p{color:#ffe4e6;font-size:14.5px;margin-top:6px}
+.mermaid-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:16px 0;overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="doc-body">
+
+<div class="hero">
+<h1>🔍 复盘：单一数据源「双轨制」问题</h1>
+<p>2026-08-25 · 同一天内两次踩中同一架构病 · 关联 commit：7631891 / 510bb97 / 3b1b50b</p>
+</div>
+
+<div class="key"><strong>一句话总结</strong>：同一个能力在系统里存在两套互不同步的实现/定义，一份是精心维护的"管理面"，另一份是实际生效但劣化的"运行时"——<strong>单一数据源原则被破坏</strong>。今天它以两种形态各爆了一次：上午是工具 schema 双轨制（用户聊天收到裸 JSON），下午是嵌入调用双轨制（改配置必坏一边）。</div>
+
+<h2 id="case1">一、案例一：工具 Schema 双轨制（裸 JSON 事故主因之一）</h2>
+
+<h3>现象</h3>
+<p>问可灵「你能看时间吗」，返回 <code>{"success": true, "datetime": ...}</code> 裸 JSON；此后多轮对话、跨 Agent 反复复现。</p>
+
+<h3>双轨在哪</h3>
+<table>
+<tr><th></th><th>A 轨（管理面）</th><th>B 轨（运行时）</th></tr>
+<tr><td>载体</td><td><code>ToolRegistry</code> + <code>ToolParameter</code>（手写元数据）</td><td>AG2 <code>FunctionTool</code> 从函数签名自动推断</td></tr>
+<tr><td>内容</td><td>完整：enum、参数描述、类型</td><td>劣化：<code>action: string</code>，enum 和描述全丢</td></tr>
+<tr><td>消费者</td><td>前端工具箱 UI、API 展示</td><td><strong>模型（真正重要的消费者）</strong></td></tr>
+</table>
+
+<p>根因代码：<code>get_ag2_tools()</code> 构造 FunctionTool 时只传了 <code>func/name/description</code>，而该版本 AG2 的 FunctionTool 没有 schema 参数，只能从贫瘠的签名推断 → 模型看不到 enum，瞎猜 <code>action="get_current_time"</code>。叠加 AG2 默认 <code>reflect_on_tool_use=False</code>（工具结果不转述直接回显），最终把错误 JSON 原样发给用户。</p>
+
+<div class="mermaid-box"><pre>ToolParameter(enum+描述) ──✗ 未传递 ──→ 模型
+        │                                    │
+        ▼ 管理面展示                          ▼ AG2 从签名推断（劣化）
+   前端工具箱显示正常              模型瞎猜参数 → 错误JSON → 回显给用户</pre></div>
+
+<h3>修复（commit 510bb97）</h3>
+<ul>
+<li><strong>合轨</strong>：内置工具函数签名改用 <code>Literal["now","format","parse"]</code> + <code>Annotated[...]</code>，让 AG2 自动生成的 schema 天然携带 enum 与描述——<strong>签名即唯一真相，两轨同源永不漂移</strong>；</li>
+<li><strong>补翻译层</strong>：显式传 <code>reflect_on_tool_use=True</code>，工具执行后强制二次推理转述为自然语言；</li>
+<li><strong>防御兜底</strong>：<code>_real_stream</code> 检测疑似裸 JSON 的 fallback 内容，绝不直通用户；</li>
+<li><strong>策略护栏</strong>：注入 TOOL_USE_POLICY（寒暄不调工具、禁止直发 JSON）；</li>
+<li><strong>记忆治理</strong>：<code>_is_memory_noise</code> 写入守卫 + 存量清理，切断"错误自强化回路"。</li>
+</ul>
+
+<h2 id="case2">二、案例二：嵌入调用双轨制（改配置必坏一边）</h2>
+
+<h3>现象</h3>
+<p>embedding 配置有两个消费方，协议需求"相反"：</p>
+<table>
+<tr><th>消费方</th><th>实现方式</th><th>对 base_url 的要求</th></tr>
+<tr><td>RAG 知识库模块</td><td>自带 <code>DashScopeEmbeddingProvider</code>（DashScope 原生协议）</td><td>必须以 <code>/api/v1</code> 结尾（URL 拼接逻辑决定）</td></tr>
+<tr><td>记忆系统 vector_memory</td><td>标准 OpenAI SDK（兼容协议）</td><td>必须是 <code>/compatible-mode/v1</code></td></tr>
+</table>
+
+<p>一份配置喂两个胃口相反的消费方 → 把配置改成 compatible-mode 时记忆系统好了、RAG 会拼出 <code>.../compatible-mode/v1/api/v1/services/...</code> 这种坏 URL 直接挂掉。</p>
+
+<div class="warn">事后复盘确认：两个模块都是近期开发，分叉的唯一原因是<strong>开发时对接了不同的模型服务</strong>——不是有意设计，也没有历史包袱。这正是双轨制的典型成因：各自独立实现、互不知晓、无同步机制。</div>
+
+<h3>修复（commit 3b1b50b）</h3>
+<ul>
+<li><code>_is_dashscope_model()</code> 增加 compatible-mode 排除判断——检测到兼容模式 URL 一律路由到 <code>OpenAIEmbeddingProvider</code>；</li>
+<li><code>OpenAIEmbeddingProvider</code> 增加 20 条/批分批处理（DashScope 兼容模式批次上限）；</li>
+<li>架构决策（经六维评估 + 实测）：统一走 OpenAI 兼容模式为主线；<code>DashScopeEmbeddingProvider</code> 保留为未来混合检索的可选适配器，通过 Provider 工厂按需路由。</li>
+</ul>
+
+<h2 id="bonus">三、附赠发现：字段名不匹配的静默失败</h2>
+
+<p>实施配置切换时还挖出第三个 bug：<code>update_model_config</code> 服务层检查的是 ORM 列名 <code>default_model</code>，而 API 层传入的字段名是 <code>is_default</code> → <code>setattr</code> 设置了不存在的属性，<strong>"设为默认"功能一直静默失败</strong>（这也解释了为什么 embedding 配置一直没被设成默认）。已在服务层做字段归一化修复。</p>
+
+<div class="tip">这类 bug 的共同特征：<strong>不报错、不崩溃、只是悄悄不生效</strong>。比崩溃更危险，因为它会让人误以为"配置过了就是生效了"。识别手段：任何配置类改动都要做一次端到端验证（读回状态确认），而不是只看接口返回 200。</div>
+
+<h2 id="lessons">四、方法论沉淀</h2>
+
+<table>
+<tr><th>#</th><th>教训</th><th>落地做法</th></tr>
+<tr><td>1</td><td><strong>单一数据源原则</strong>：同一能力的定义/实现只允许存在一份，其他视角从它派生</td><td>工具定义以函数签名为唯一真相；嵌入调用统一 Provider 工厂</td></tr>
+<tr><td>2</td><td><strong>框架默认值 ≠ 产品假设</strong>：关键行为必须显式声明，不依赖第三方隐式默认</td><td><code>reflect_on_tool_use=True</code> 显式传入</td></tr>
+<tr><td>3</td><td><strong>schema 质量 &gt; 模型选择</strong>：实测证明劣化 schema 下 MiMo 和 Qwen 都会瞎猜参数</td><td>enum/描述必须写入签名注解，永远不指望模型兜底</td></tr>
+<tr><td>4</td><td><strong>以事实为依据</strong>：文档说"仅原生支持"不代表真的不支持（instruct 实测可用，官方文档过时）</td><td>判定实验法：对比加参前后向量差异，而非只看 HTTP 200</td></tr>
+<tr><td>5</td><td><strong>记忆需要内容治理</strong>：无差别落库会让记忆系统变成错误放大器</td><td>写入守卫过滤噪声 + 存量清理脚本</td></tr>
+</table>
+
+<h2 id="prevent">五、预防清单（新代码评审时自查）</h2>
+
+<ul>
+<li>□ 这个能力是否已有实现？有 → 复用或合并，而不是再写一份；</li>
+<li>□ 同一份数据/配置是否有多个消费者？列出所有消费者并确认需求一致；</li>
+<li>□ 依赖的框架默认值是什么？是否与产品预期一致？显式传参了吗？</li>
+<li>□ 配置改动后，是否做了端到端读回验证？</li>
+<li>□ 新增的自动生成逻辑（schema/序列化），生成结果是否人工核对过一次？</li>
+</ul>
+
+<h2 id="refs">六、关联材料</h2>
+<ul>
+<li>完整排查过程：《plans/复盘-聊天工具调用返回裸JSON问题与修复方案-2026-08-25.md》（含改造前后架构图与时序图）</li>
+<li>模型生态调研与实测数据：《plans/调研-模型生态与嵌入服务实测-2026-08-25.md》</li>
+<li>相关提交：<code>7631891</code>（复盘文档）、<code>510bb97</code>（五模块修复）、<code>3b1b50b</code>(嵌入接入与统一)</li>
+</ul>
+
+</div>
+</body>
+</html>

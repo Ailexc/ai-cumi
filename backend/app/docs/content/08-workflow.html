@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="工作流编排">
+<meta name="doc:category" content="进阶">
+<meta name="doc:order" content="8">
+<meta name="doc:description" content="从演示骨架到可视化编排平台:DAG 建模、五类节点真实执行、SQLite 持久化与 React Flow 编辑器">
+<meta name="doc:icon" content="git-branch">
+<title>08 · 工作流编排</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#why" class="doc-toc-h2">为什么需要工作流编排</a>
+  <a href="#evolution" class="doc-toc-h2">演进:从演示骨架到编排平台</a>
+  <a href="#dag" class="doc-toc-h2">DAG 数据模型</a>
+  <a href="#nodes" class="doc-toc-h2">五种节点类型</a>
+  <a href="#execution" class="doc-toc-h2">真实执行接线</a>
+  <a href="#persistence" class="doc-toc-h2">SQLite 持久化</a>
+  <a href="#editor" class="doc-toc-h2">React Flow 可视化编辑器</a>
+  <a href="#templates" class="doc-toc-h2">模板库:三个内置模板</a>
+  <a href="#compare" class="doc-toc-h2">对比评分:n8n / Dify / Flowise</a>
+  <a href="#tour" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🌿</div>
+  <div>
+    <h1>工作流编排</h1>
+    <div class="hero-meta">DAG 建模 · 五类节点真实执行 · SQLite 持久化 · React Flow 可视化编辑器 ｜ 进阶篇 · 建议先读 <a href="#/api/docs/02-architecture-overview">02 · 架构总览</a></div>
+  </div>
+</div>
+
+<section id="why">
+<h2>为什么需要工作流编排</h2>
+<p>对话式多 Agent 协作（私聊 / 群聊）解决的是<strong>"一次交互"</strong>的问题：你 @ 一个 Agent，它调用工具、给出回答。但真实世界的任务往往是<strong>多步骤、有依赖、可重复</strong>的：</p>
+<ul>
+  <li><strong>多步骤</strong>："调研一个主题" ≠ 一次问答，而是「搜索信息 → 提炼分析 → 生成报告」三步，每步的输出是下一步的输入。</li>
+  <li><strong>有分支</strong>："发布内容" 需要先判断是否敏感——敏感走人工审核，不敏感直接发布，两条路必须二选一。</li>
+  <li><strong>可重复</strong>：同一套流程要反复跑（每周调研、每次发版前代码评审），每次手打 prompt 不可持续。</li>
+  <li><strong>可审计</strong>：跑完要知道每一步谁执行的、输入输出是什么、耗时多久、失败在哪。</li>
+</ul>
+<p>工作流编排的价值就是把「执行过程」从人脑里搬到<strong>可建模、可运行、可回放</strong>的图里：节点是"做什么"，连线是"依赖与分支"，引擎负责把图跑起来。</p>
+
+<div class="grid2">
+  <div class="card">
+    <h4>💬 对话编排（已有）</h4>
+    <ul style="margin:8px 0 0">
+      <li>由 AG2 GroupChat 驱动，语义是"谁跟谁聊"</li>
+      <li>适合开放探索、头脑风暴</li>
+      <li>流程隐含在对话轮次里，不可复现</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>🌿 工作流编排（本篇）</h4>
+    <ul style="margin:8px 0 0">
+      <li>由自研 DAG 引擎驱动，语义是"先做什么、再做什么"</li>
+      <li>适合固定流水线、可复用任务</li>
+      <li>结构显式、可保存、可回放、可可视化</li>
+    </ul>
+  </div>
+</div>
+
+<div class="key">两者互补：对话编排负责"灵感的涌现"，工作流编排负责"流程的确定性"。业界（n8n / Dify / Flowise）的成熟形态正是把后者做成可视化画布，这也是本项目工作流的优化方向。</div>
+</section>
+
+<section id="evolution">
+<h2>演进:从演示骨架到编排平台</h2>
+<p>工作流模块最初只是"演示骨架"——<strong>有引擎、有 API、有面板，但'做了等于没做'</strong>。优化方案记录在 <code>plans/WORKFLOW-OPTIMIZATION-PLAN.md</code>，诊断出三个断层：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="工作流演进对比图">
+<defs> <linearGradient id="wf-e1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient>
+<linearGradient id="wf-e2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient> <marker id="wf-e-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#5e6ad2"/> </marker>
+</defs> <g font-family="PingFang SC, sans-serif">
+<rect x="20" y="26" width="355" height="200" rx="16" fill="url(#wf-e1)"/> <text x="197" y="58" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">过去 · 演示骨架（三个断层）</text>
+<rect x="42" y="76" width="312" height="34" rx="9" fill="#ffffff" opacity=".28"/> <text x="198" y="97" text-anchor="middle" fill="#fff" font-size="12.5">断层① UI:面板只有「刷新」「创建示例」两个按钮</text>
+<rect x="42" y="118" width="312" height="34" rx="9" fill="#ffffff" opacity=".28"/> <text x="198" y="139" text-anchor="middle" fill="#fff" font-size="12.5">断层② 引擎:register_handler 从未被调用（全 mock）</text>
+<rect x="42" y="160" width="312" height="34" rx="9" fill="#ffffff" opacity=".28"/> <text x="198" y="181" text-anchor="middle" fill="#fff" font-size="12.5">断层③ 数据:存在内存 dict，服务重启即丢</text>
+<path d="M 396 126 C 414 126 428 126 446 126" stroke="#5e6ad2" stroke-width="3" fill="none" marker-end="url(#wf-e-arr)"/> <rect x="485" y="26" width="355" height="200" rx="16" fill="url(#wf-e2)"/>
+<text x="662" y="58" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">现在 · 可视化编排平台</text> <rect x="507" y="76" width="312" height="34" rx="9" fill="#ffffff" opacity=".28"/>
+<text x="663" y="97" text-anchor="middle" fill="#fff" font-size="12.5">DAG 建模:nodes + edges，条件/并行原生表达</text> <rect x="507" y="118" width="312" height="34" rx="9" fill="#ffffff" opacity=".28"/>
+<text x="663" y="139" text-anchor="middle" fill="#fff" font-size="12.5">真实执行:接 AgentManager / ToolRegistry / 审批</text> <rect x="507" y="160" width="312" height="34" rx="9" fill="#ffffff" opacity=".28"/>
+<text x="663" y="181" text-anchor="middle" fill="#fff" font-size="12.5">SQLite 持久化:workflow_defs / workflow_runs</text> </g>
+</svg>
+<div class="fig-cap">2026-08-21 优化：目标 = 能自由编排 + 能真实执行 + 能持久化 + 执行过程可视化（学习导向）。</div>
+</div>
+
+<table>
+  <thead><tr><th>断层</th><th>旧状态</th><th>优化方案</th><th>落地文件</th></tr></thead>
+  <tbody>
+    <tr><td>UI 缺口</td><td>只有「刷新」「创建示例工作流」两个按钮；<code>POST /api/workflows/demo/create</code> 硬编码三步流程</td><td>React Flow 画布式编辑器：左侧工具箱拖节点、画布连线、右侧属性面板</td><td><code>frontend/src/components/workspace/workflow/WorkflowEditor.tsx</code></td></tr>
+    <tr><td>引擎缺口</td><td>所有步骤走 <code>_default_handler</code>，返回假话（"Agent processed: …"）</td><td>五类 handler 注入真实能力：<code>agent_manager.send_message</code> / <code>tool_registry.execute</code> / 审批</td><td><code>backend/app/main.py::_register_workflow_handlers</code></td></tr>
+    <tr><td>数据缺口</td><td>工作流存内存 <code>_workflows</code> dict，重启即丢</td><td>SQLite 表 <code>workflow_defs</code> + <code>workflow_runs</code>，启动时 <code>load_from_db()</code></td><td><code>backend/app/models/__init__.py</code></td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="dag">
+<h2>DAG 数据模型</h2>
+<p>优化把旧的「链式字段」（<code>next_step_id</code> / <code>then_step_id</code> / <code>parallel_step_ids</code> / <code>depends_on</code> 四套连接描述）统一为一张 <strong>有向无环图（DAG）</strong>：<strong>节点（Node）</strong>表达"做什么"，<strong>连线（Edge）</strong>表达"依赖与分支"。数据类定义在 <code>backend/app/workflow/engine.py</code>：</p>
+
+<div class="card">
+  <h4>两个核心数据类</h4>
+<pre><code>@dataclass
+class WorkflowNode:          # 一个节点
+    id: str                  # 唯一 id（前端 React Flow 同 id）
+    name: str                # 展示名
+    node_type: StepType      # agent_call / tool_call / condition / transform / human_review
+    config: Dict             # 类型专属配置（agent_id、tool_name、expression、template…）
+    position: Dict           # 画布坐标 {"x": 0, "y": 0}（持久化后布局不丢）
+    # 运行时字段（每次运行 reset）:status / input_data / output_data / error / duration_ms
+
+@dataclass
+class WorkflowEdge:          # 一条有向连线
+    id: str
+    source: str              # 源节点 id
+    target: str              # 目标节点 id
+    source_handle: str       # "success" | "failure" | "always"
+    condition: str           # 条件表达式（如 data["result"] == true），可空</code></pre>
+</div>
+
+<h3>触发模型（trigger model）</h3>
+<ul>
+  <li><strong>种子节点</strong>：没有入边的节点是执行起点，拿到 <code>initial_input</code> 直接跑。</li>
+  <li><strong>出边触发</strong>：节点完成后，逐条检查出边——<code>source_handle</code> 匹配（成功/失败）且 <code>condition</code> 求值为真，就触发目标节点；<strong>多条出边同时满足则并行执行</strong>（<code>asyncio.gather</code>）。</li>
+  <li><strong>输入合并</strong>：单边到达的节点直接收到源节点输出；多边到达的节点收到 <code>{"源id": 输出, ...}</code> 字典。</li>
+  <li><strong>未触达即跳过</strong>：条件分支未走的一侧保持 <code>pending</code>，运行结束统一标记为 <code>skipped</code>，不会误判失败。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DAG 条件分支示例图">
+<defs> <linearGradient id="wf-d-agt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+<linearGradient id="wf-d-cond" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#60a5fa"/></linearGradient> <linearGradient id="wf-d-hr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d97706"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+<linearGradient id="wf-d-tf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient> <marker id="wf-d-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#8b8e96"/> </marker>
+<marker id="wf-d-arrb" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"> <path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#2563eb"/>
+</marker> </defs>
+<g font-family="PingFang SC, sans-serif"> <!-- 生成内容 -->
+<rect x="20" y="120" width="150" height="64" rx="14" fill="url(#wf-d-agt)"/> <text x="95" y="148" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">生成内容</text>
+<text x="95" y="168" text-anchor="middle" fill="#f5f3ff" font-size="11">agent_call · keling</text> <!-- 敏感判断 -->
+<rect x="250" y="120" width="150" height="64" rx="14" fill="url(#wf-d-cond)"/> <text x="325" y="148" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">敏感判断</text>
+<text x="325" y="168" text-anchor="middle" fill="#eff6ff" font-size="11">condition · 表达式</text> <!-- 人工审核 -->
+<rect x="500" y="30" width="150" height="64" rx="14" fill="url(#wf-d-hr)"/> <text x="575" y="58" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">人工审核</text>
+<text x="575" y="78" text-anchor="middle" fill="#fffbeb" font-size="11">human_review · HITL</text> <!-- 发布 / 拦截 -->
+<rect x="710" y="30" width="130" height="64" rx="14" fill="url(#wf-d-tf)"/> <text x="775" y="58" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">✅ 发布</text>
+<text x="775" y="78" text-anchor="middle" fill="#f8fafc" font-size="11">transform</text> <rect x="710" y="190" width="130" height="64" rx="14" fill="url(#wf-d-tf)"/>
+<text x="775" y="218" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">⛔ 拦截</text> <text x="775" y="238" text-anchor="middle" fill="#f8fafc" font-size="11">transform</text>
+<!-- 连线 --> <path d="M 170 152 L 240 152" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#wf-d-arr)"/>
+<path d="M 400 138 C 450 100 460 76 500 66" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#wf-d-arrb)"/> <text x="430" y="92" text-anchor="middle" fill="#1d4ed8" font-size="11.5" font-weight="600">condition: data["result"] == true</text>
+<path d="M 400 176 C 480 210 620 220 706 222" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#wf-d-arrb)"/> <text x="548" y="240" text-anchor="middle" fill="#1d4ed8" font-size="11.5" font-weight="600">condition: data["result"] == false</text>
+<path d="M 650 62 L 706 62" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#wf-d-arr)"/> <!-- 数据模型速览 -->
+<rect x="20" y="278" width="400" height="38" rx="10" fill="#f4f4f7"/> <text x="220" y="302" text-anchor="middle" fill="#55585f" font-size="12.5">WorkflowNode { id, name, node_type, config, position }</text>
+<rect x="440" y="278" width="400" height="38" rx="10" fill="#f4f4f7"/> <text x="640" y="302" text-anchor="middle" fill="#55585f" font-size="12.5">WorkflowEdge { id, source, target, source_handle, condition }</text>
+</g>
+</svg>
+<div class="fig-cap">「内容审核发布」模板的 DAG：条件节点用两条带 <code>condition</code> 的出边表达分支，未走的一侧最终标记 <code>skipped</code>。</div>
+</div>
+
+<div class="tip">为什么用"边上的条件"而不是"节点里的 then/else 字段"？因为<strong>一条连线一个条件</strong>是 DAG 的统一原语：顺序 = 无条件边，分支 = 条件边，并行 = 多条同时满足的边。所有拓扑（顺序/并行/条件/审批）用同一套数据结构表达，引擎只需处理"边是否满足"。</div>
+</section>
+
+<section id="nodes">
+<h2>五种节点类型</h2>
+<p>节点类型由 <code>StepType</code> 枚举定义（<code>engine.py</code>）。每种类型对应一个 <code>config</code> 配置结构和一个真实执行 handler：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="五类节点卡片图">
+<defs> <linearGradient id="wf-n-agt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+<linearGradient id="wf-n-tool" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ea580c"/><stop offset="1" stop-color="#fb923c"/></linearGradient> <linearGradient id="wf-n-cond" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+<linearGradient id="wf-n-tf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient> <linearGradient id="wf-n-hr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d97706"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+</defs> <g font-family="PingFang SC, sans-serif">
+<rect x="20" y="30" width="152" height="180" rx="14" fill="url(#wf-n-agt)"/> <text x="96" y="72" text-anchor="middle" fill="#fff" font-size="22">🤖</text>
+<text x="96" y="100" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">agent_call</text> <text x="96" y="124" text-anchor="middle" fill="#f5f3ff" font-size="11">调用团队 Agent（AG2）</text>
+<text x="96" y="144" text-anchor="middle" fill="#f5f3ff" font-size="11">config: agent_id / prompt</text> <text x="96" y="178" text-anchor="middle" fill="#f5f3ff" font-size="11">→ send_message 完整回复</text>
+<rect x="182" y="30" width="152" height="180" rx="14" fill="url(#wf-n-tool)"/> <text x="258" y="72" text-anchor="middle" fill="#fff" font-size="22">🔧</text>
+<text x="258" y="100" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">tool_call</text> <text x="258" y="124" text-anchor="middle" fill="#fff7ed" font-size="11">调用内置工具</text>
+<text x="258" y="144" text-anchor="middle" fill="#fff7ed" font-size="11">config: tool_name / params</text> <text x="258" y="178" text-anchor="middle" fill="#fff7ed" font-size="11">→ tool_registry.execute</text>
+<rect x="344" y="30" width="152" height="180" rx="14" fill="url(#wf-n-cond)"/> <text x="420" y="72" text-anchor="middle" fill="#fff" font-size="22">🔀</text>
+<text x="420" y="100" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">condition</text> <text x="420" y="124" text-anchor="middle" fill="#eff6ff" font-size="11">安全表达式求值</text>
+<text x="420" y="144" text-anchor="middle" fill="#eff6ff" font-size="11">如 data["score"] &gt; 0.5</text> <text x="420" y="178" text-anchor="middle" fill="#eff6ff" font-size="11">→ evaluate_condition</text>
+<rect x="506" y="30" width="152" height="180" rx="14" fill="url(#wf-n-tf)"/> <text x="582" y="72" text-anchor="middle" fill="#fff" font-size="22">🧩</text>
+<text x="582" y="100" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">transform</text> <text x="582" y="124" text-anchor="middle" fill="#f8fafc" font-size="11">模板渲染 / 数据映射</text>
+<text x="582" y="144" text-anchor="middle" fill="#f8fafc" font-size="11">如 {{ input.field }}</text> <text x="582" y="178" text-anchor="middle" fill="#f8fafc" font-size="11">→ render_template</text>
+<rect x="668" y="30" width="152" height="180" rx="14" fill="url(#wf-n-hr)"/> <text x="744" y="72" text-anchor="middle" fill="#fff" font-size="22">🧑‍⚖️</text>
+<text x="744" y="100" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">human_review</text> <text x="744" y="124" text-anchor="middle" fill="#fffbeb" font-size="11">暂停等人工审批（HITL）</text>
+<text x="744" y="144" text-anchor="middle" fill="#fffbeb" font-size="11">config: description</text> <text x="744" y="178" text-anchor="middle" fill="#fffbeb" font-size="11">→ approval_manager</text>
+</g>
+</svg>
+<div class="fig-cap">五种节点：Agent 调用 / 工具调用 / 条件判断 / 数据转换 / 人工审核，颜色与前端 <code>NODE_TYPE_META</code> 一致。</div>
+</div>
+
+<table>
+  <thead><tr><th>类型</th><th>用途</th><th>关键 config</th><th>真实执行落点</th></tr></thead>
+  <tbody>
+    <tr><td><code>agent_call</code></td><td>调用团队里的某个 AG2 Agent 完成任务</td><td><code>agent_id</code>、<code>prompt</code>（支持模板）</td><td><code>agent_manager.send_message(agent_id, msg)</code>（main.py agent_handler）</td></tr>
+    <tr><td><code>tool_call</code></td><td>调用注册好的内置工具（web_search / code_execute / file_read…）</td><td><code>tool_name</code>、<code>params</code>（参数值支持模板）</td><td><code>tool_registry.execute(tool_name, **params)</code>（main.py tool_handler）</td></tr>
+    <tr><td><code>condition</code></td><td>对上游输出求值，决定走哪条边</td><td><code>expression</code>（如 <code>data["result"] == true</code>）</td><td><code>evaluate_condition(expr, input_data, {})</code>（engine.py 安全 AST 求值器）</td></tr>
+    <tr><td><code>transform</code></td><td>把上游数据渲染成文本 / 映射成新结构</td><td><code>template</code>（<code>{{ input.response }}</code>）或 <code>mapping</code></td><td><code>render_template(tpl, input_data, {})</code>（engine.py）</td></tr>
+    <tr><td><code>human_review</code></td><td>流程暂停，等人工审批通过后继续</td><td><code>description</code>、<code>auto_approve</code>、<code>wait_timeout</code></td><td><code>approval_manager.request_approval()</code> + <code>wait_for_approval()</code>（main.py human_review_handler）</td></tr>
+  </tbody>
+</table>
+
+<h3>安全表达式求值器 evaluate_condition</h3>
+<p>条件节点允许用户写表达式控制分支，但<strong>不能执行任意代码</strong>。实现思路（<code>engine.py</code> 第 231-279 行）：</p>
+<ul>
+  <li>用 <code>ast.parse(expr, mode="eval")</code> 把表达式解析成 AST，然后 <code>ast.walk</code> 逐个节点校验类型，只放行 <code>_ALLOWED_AST</code> 白名单（比较、算术、布尔、成员判断、下标等）。</li>
+  <li>禁止 <code>__</code> 开头的属性访问（防绕过），未知名字（<code>ast.Name</code> 不在 <code>_ALLOWED_NAMES</code>）直接拒绝。</li>
+  <li>求值时注入 <code>__builtins__ = {}</code>（清空内建函数），只暴露 <code>data / input / ctx</code> 三个数据名字。</li>
+</ul>
+<pre><code>evaluate_condition('data["score"] &gt; 0.5', {"score": 0.8})   # → True
+evaluate_condition('"敏感" in data["response"]', {"response": "无敏感内容"})  # → False
+evaluate_condition('__import__("os").system("rm -rf /")', {})  # → False（白名单拒绝）</code></pre>
+</section>
+
+<section id="execution">
+<h2>真实执行接线</h2>
+<p>优化前的引擎"没人接线"——<code>register_handler</code> 从未被调用。现在在 FastAPI 启动的 <code>lifespan</code> 里一次性接好（<code>backend/app/main.py</code> 第 172-183 行）：</p>
+
+<pre><code># lifespan 内：
+from .workflow import workflow_engine
+_register_workflow_handlers()          # ① 注册五类真实 handler
+workflow_engine.set_db(get_db)         # ② 注入 SQLAlchemy session 工厂（持久化）
+workflow_engine.set_ws_notifier(ws_manager.broadcast_json)  # ③ 运行事件推送前端
+workflow_engine.load_from_db()         # ④ 启动时把 SQLite 里的定义载入内存</code></pre>
+
+<p><code>_register_workflow_handlers()</code>（main.py 第 1557-1624 行）定义了五个异步 handler 并批量注册：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="工作流真实执行接线图">
+<defs> <linearGradient id="wf-x-eng" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+<linearGradient id="wf-x-reg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient> <linearGradient id="wf-x-res" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+<marker id="wf-x-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"> <path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#5e6ad2"/>
+</marker> </defs>
+<g font-family="PingFang SC, sans-serif"> <rect x="30" y="60" width="200" height="150" rx="16" fill="url(#wf-x-eng)"/>
+<text x="130" y="92" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">WorkflowEngine</text> <text x="130" y="114" text-anchor="middle" fill="#eef0fb" font-size="11.5">execute_workflow()</text>
+<text x="130" y="134" text-anchor="middle" fill="#eef0fb" font-size="11.5">_run_dag() 并行调度</text> <text x="130" y="154" text-anchor="middle" fill="#eef0fb" font-size="11.5">_execute_node()</text>
+<text x="130" y="178" text-anchor="middle" fill="#eef0fb" font-size="11">engine.py · 全局单例</text> <path d="M 230 120 C 260 120 276 120 306 120" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#wf-x-arr)"/>
+<text x="268" y="112" text-anchor="middle" fill="#55585f" font-size="11">按 node_type 查 handler</text> <rect x="316" y="40" width="240" height="170" rx="16" fill="url(#wf-x-reg)"/>
+<text x="436" y="70" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">_step_handlers 注册表</text> <rect x="336" y="84" width="200" height="26" rx="8" fill="#ffffff" opacity=".25"/>
+<text x="436" y="101" text-anchor="middle" fill="#fff" font-size="11.5">agent_call → agent_handler</text> <rect x="336" y="114" width="200" height="26" rx="8" fill="#ffffff" opacity=".25"/>
+<text x="436" y="131" text-anchor="middle" fill="#fff" font-size="11.5">tool_call → tool_handler</text> <rect x="336" y="144" width="200" height="26" rx="8" fill="#ffffff" opacity=".25"/>
+<text x="436" y="161" text-anchor="middle" fill="#fff" font-size="11.5">condition → condition_handler</text> <rect x="336" y="174" width="200" height="26" rx="8" fill="#ffffff" opacity=".25"/>
+<text x="436" y="191" text-anchor="middle" fill="#fff" font-size="11.5">transform / human_review …</text> <path d="M 556 110 C 590 110 610 110 640 110" stroke="#0ea5e9" stroke-width="2.5" fill="none" marker-end="url(#wf-x-arr)"/>
+<text x="598" y="102" text-anchor="middle" fill="#55585f" font-size="11">委托真实能力</text> <rect x="650" y="26" width="190" height="52" rx="12" fill="url(#wf-x-res)"/>
+<text x="745" y="48" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">AgentManager</text> <text x="745" y="66" text-anchor="middle" fill="#d1fae5" font-size="11">send_message → AG2 Agent</text>
+<rect x="650" y="88" width="190" height="52" rx="12" fill="url(#wf-x-res)"/> <text x="745" y="110" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">ToolRegistry</text>
+<text x="745" y="128" text-anchor="middle" fill="#d1fae5" font-size="11">execute → 6 内置工具</text> <rect x="650" y="150" width="190" height="52" rx="12" fill="url(#wf-x-res)"/>
+<text x="745" y="172" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">ApprovalManager</text> <text x="745" y="190" text-anchor="middle" fill="#d1fae5" font-size="11">request + wait_for_approval</text>
+<rect x="316" y="240" width="524" height="56" rx="12" fill="#f4f4f7"/> <text x="578" y="264" text-anchor="middle" fill="#55585f" font-size="12">执行事件 step.started / step.completed → ws_notifier.broadcast_json → 前端节点高亮</text>
+<text x="578" y="284" text-anchor="middle" fill="#8b8e96" font-size="11.5">mock 兜底：系统未配置模型时，AgentManager 内部降级为模拟回复（透明降级，引擎永远走真实路径）</text> </g>
+</svg>
+<div class="fig-cap">接线图：引擎只认 handler 注册表，handler 内部委托系统已有的真实能力；执行事件经 WebSocket 推给前端做运行态高亮。</div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h4>agent_handler 如何工作</h4>
+<pre><code>async def agent_handler(input_data, config):
+    agent_id = config.get("agent_id")
+    prompt = config.get("prompt", "")
+    message = _stringify(input_data)
+    if prompt:  # prompt 支持 {{ }} 模板
+        message = render_template(prompt, input_data, {}) + "\n\n" + message
+    return {"response": await agent_manager.send_message(agent_id, message)}</code></pre>
+  </div>
+  <div class="card">
+    <h4>tool_handler 如何工作</h4>
+<pre><code>async def tool_handler(input_data, config):
+    tool_name = config.get("tool_name")
+    params = dict(config.get("params") or {})
+    for k, v in list(params.items()):
+        if isinstance(v, str) and "{{" in v:   # 参数也支持模板
+            params[k] = render_template(v, input_data, {})
+    result = tool_registry.execute(tool_name, **params)
+    return {"result": result, "tool": tool_name, "params": params}</code></pre>
+  </div>
+</div>
+
+<div class="warn">诚实说明设计取舍（对应计划文档 3.1）：计划里提过 <code>config.mock = true</code> 的节点级开关，最终实现采用<strong>更简单也更透明的方案</strong>——五类 handler 无条件注册，引擎层永远走真实路径；是否"真实"取决于 AgentManager 自身的 mock 兜底（没配模型时 <code>send_message</code> 返回模拟回复）。好处是引擎逻辑单一；代价是节点级"强制模拟"不可单独开关。另外 <code>agent_call</code> 是同步取完整回复而非流式，稳定性优先，流式吐字到画布留作增强项。</div>
+</section>
+
+<section id="persistence">
+<h2>SQLite 持久化</h2>
+<p>优化前的数据都在内存 dict 里，重启即丢。现在定义与运行历史都落 SQLite（表定义在 <code>backend/app/models/__init__.py</code> 第 210-240 行）：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SQLite 持久化结构图">
+<defs> <linearGradient id="wf-p-eng" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+<linearGradient id="wf-p-tab" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient> <linearGradient id="wf-p-db" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+<marker id="wf-p-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"> <path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#5e6ad2"/>
+</marker> </defs>
+<g font-family="PingFang SC, sans-serif"> <rect x="20" y="60" width="230" height="160" rx="16" fill="url(#wf-p-eng)"/>
+<text x="135" y="92" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">WorkflowEngine（内存）</text> <text x="135" y="116" text-anchor="middle" fill="#eef0fb" font-size="11.5">_workflows: Dict[id, Workflow]</text>
+<text x="135" y="138" text-anchor="middle" fill="#eef0fb" font-size="11.5">_persist_workflow(wf)  ↓ 写</text> <text x="135" y="160" text-anchor="middle" fill="#eef0fb" font-size="11.5">_persist_run(run)     ↓ 写</text>
+<text x="135" y="182" text-anchor="middle" fill="#eef0fb" font-size="11.5">load_from_db()        ↑ 读</text> <path d="M 250 100 L 300 100" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#wf-p-arr)"/>
+<path d="M 300 180 L 250 180" stroke="#10b981" stroke-width="2.5" fill="none" stroke-dasharray="5 4" marker-end="url(#wf-p-arr)"/> <rect x="310" y="30" width="250" height="120" rx="14" fill="url(#wf-p-tab)"/>
+<text x="435" y="60" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">workflow_defs（定义）</text> <text x="435" y="84" text-anchor="middle" fill="#e0f2fe" font-size="11.5">id · name · description</text>
+<text x="435" y="104" text-anchor="middle" fill="#e0f2fe" font-size="11.5">definition_json {"nodes","edges"}</text> <text x="435" y="124" text-anchor="middle" fill="#e0f2fe" font-size="11.5">created_at · updated_at</text>
+<rect x="310" y="170" width="250" height="120" rx="14" fill="url(#wf-p-tab)"/> <text x="435" y="200" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">workflow_runs（历史）</text>
+<text x="435" y="224" text-anchor="middle" fill="#e0f2fe" font-size="11.5">id · workflow_id · status</text> <text x="435" y="244" text-anchor="middle" fill="#e0f2fe" font-size="11.5">input_data · output_data · steps_json</text>
+<text x="435" y="264" text-anchor="middle" fill="#e0f2fe" font-size="11.5">started_at · completed_at · duration_ms</text> <path d="M 560 90 C 600 90 610 90 640 90" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#wf-p-arr)"/>
+<path d="M 560 210 C 600 210 610 210 640 210" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#wf-p-arr)"/> <rect x="650" y="90" width="190" height="120" rx="16" fill="url(#wf-p-db)"/>
+<text x="745" y="122" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">SQLite</text> <text x="745" y="144" text-anchor="middle" fill="#d1fae5" font-size="11.5">backend/data/aicumi.db</text>
+<text x="745" y="166" text-anchor="middle" fill="#d1fae5" font-size="11.5">重启 load_from_db 全量载入</text> <text x="745" y="186" text-anchor="middle" fill="#d1fae5" font-size="11.5">run_count / last_run 自动回填</text>
+</g>
+</svg>
+<div class="fig-cap">持久化路径：定义与每次运行都写库；启动时 <code>load_from_db()</code> 把定义载回内存，并回填 <code>run_count</code> / <code>last_run_status</code>。</div>
+</div>
+
+<ul>
+  <li><strong>写定义</strong>：<code>_persist_workflow</code> 把节点/连线序列化成 <code>definition_json</code>，插入或更新 <code>workflow_defs</code>（幂等：有则更新，无则新增）。</li>
+  <li><strong>写运行</strong>：<code>_persist_run</code> 每次执行结束把 <code>WorkflowRun</code>（含每步状态 <code>steps_json</code>）插入 <code>workflow_runs</code>。</li>
+  <li><strong>读历史</strong>：<code>get_runs(workflow_id, limit)</code> 按 <code>created_at</code> 倒序返回，前端「运行历史」面板展示。</li>
+  <li><strong>启动加载</strong>：<code>load_from_db()</code> 遍历 <code>workflow_defs</code>，用 <code>_from_dict</code> 重建 <code>Workflow</code> 对象；顺带查出每个工作流最近一次运行回填统计字段；坏数据（JSON 解析失败）跳过并打印告警。</li>
+</ul>
+
+<div class="tip"><code>set_db(get_db)</code> 传入的是 FastAPI 的 <code>get_db</code>（生成器工厂），<code>_get_session()</code> 做了兼容处理：如果工厂返回的是可迭代生成器就 <code>next()</code> 取出 session，普通工厂则直接用——这是把 FastAPI 依赖注入风格接进普通类的常见小技巧。</div>
+</section>
+
+<section id="editor">
+<h2>React Flow 可视化编辑器</h2>
+<p>前端用 <code>@xyflow/react</code>（React Flow v12）实现画布式编排器（<code>frontend/src/components/workspace/workflow/WorkflowEditor.tsx</code>），布局与 n8n / Dify 同构：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="React Flow 编辑器布局图">
+<defs> <linearGradient id="wf-r-tool" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+<linearGradient id="wf-r-canvas" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient> <linearGradient id="wf-r-panel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+<marker id="wf-r-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"> <path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#8b8e96"/>
+</marker> </defs>
+<g font-family="PingFang SC, sans-serif"> <!-- 顶部工具栏 -->
+<rect x="20" y="20" width="820" height="44" rx="12" fill="#475569"/> <text x="50" y="46" text-anchor="start" fill="#e2e8f0" font-size="12">← 返回列表</text>
+<text x="140" y="46" text-anchor="start" fill="#e2e8f0" font-size="12">工作流名称 ____ 描述 ____</text> <rect x="600" y="30" width="52" height="24" rx="7" fill="#ffffff" opacity=".22"/>
+<text x="626" y="46" text-anchor="middle" fill="#fff" font-size="11.5">模板</text> <rect x="662" y="30" width="52" height="24" rx="7" fill="#ffffff" opacity=".22"/>
+<text x="688" y="46" text-anchor="middle" fill="#fff" font-size="11.5">保存</text> <rect x="724" y="30" width="52" height="24" rx="7" fill="#ffffff" opacity=".22"/>
+<text x="750" y="46" text-anchor="middle" fill="#fff" font-size="11.5">运行</text> <rect x="786" y="30" width="44" height="24" rx="7" fill="#ffffff" opacity=".22"/>
+<text x="808" y="46" text-anchor="middle" fill="#fff" font-size="11.5">历史</text> <!-- 左侧工具箱 -->
+<rect x="20" y="84" width="150" height="272" rx="14" fill="url(#wf-r-tool)"/> <text x="95" y="110" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">工具箱（拖入）</text>
+<rect x="36" y="122" width="118" height="30" rx="8" fill="#ffffff" opacity=".24"/><text x="95" y="141" text-anchor="middle" fill="#fff" font-size="11.5">🤖 Agent 调用</text> <rect x="36" y="158" width="118" height="30" rx="8" fill="#ffffff" opacity=".24"/><text x="95" y="177" text-anchor="middle" fill="#fff" font-size="11.5">🔧 工具调用</text>
+<rect x="36" y="194" width="118" height="30" rx="8" fill="#ffffff" opacity=".24"/><text x="95" y="213" text-anchor="middle" fill="#fff" font-size="11.5">🔀 条件判断</text> <rect x="36" y="230" width="118" height="30" rx="8" fill="#ffffff" opacity=".24"/><text x="95" y="249" text-anchor="middle" fill="#fff" font-size="11.5">🧩 数据转换</text>
+<rect x="36" y="266" width="118" height="30" rx="8" fill="#ffffff" opacity=".24"/><text x="95" y="285" text-anchor="middle" fill="#fff" font-size="11.5">🧑‍⚖️ 人工审核</text> <!-- 中央画布 -->
+<rect x="190" y="84" width="470" height="272" rx="14" fill="url(#wf-r-canvas)"/> <text x="425" y="110" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">画布（React Flow）</text>
+<rect x="220" y="150" width="110" height="48" rx="10" fill="#ffffff" opacity=".26"/> <text x="275" y="171" text-anchor="middle" fill="#fff" font-size="12">搜索信息</text>
+<text x="275" y="187" text-anchor="middle" fill="#eef0fb" font-size="10.5">tool_call</text> <rect x="380" y="150" width="110" height="48" rx="10" fill="#ffffff" opacity=".26"/>
+<text x="435" y="171" text-anchor="middle" fill="#fff" font-size="12">分析数据</text> <text x="435" y="187" text-anchor="middle" fill="#eef0fb" font-size="10.5">agent_call · 运行中</text>
+<rect x="540" y="150" width="100" height="48" rx="10" fill="#ffffff" opacity=".26"/> <text x="590" y="171" text-anchor="middle" fill="#fff" font-size="12">生成报告</text>
+<text x="590" y="187" text-anchor="middle" fill="#eef0fb" font-size="10.5">agent_call</text> <path d="M 330 174 L 376 174" stroke="#fff" stroke-width="2" fill="none" marker-end="url(#wf-r-arr)"/>
+<path d="M 490 174 L 536 174" stroke="#fff" stroke-width="2" fill="none" marker-end="url(#wf-r-arr)"/> <text x="425" y="260" text-anchor="middle" fill="#eef0fb" font-size="11.5">连线建立依赖 · 条件分支 · MiniMap · Controls</text>
+<!-- 右侧属性面板 --> <rect x="680" y="84" width="160" height="272" rx="14" fill="url(#wf-r-panel)"/>
+<text x="760" y="110" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">属性面板</text> <rect x="692" y="122" width="136" height="26" rx="8" fill="#ffffff" opacity=".24"/><text x="760" y="139" text-anchor="middle" fill="#fff" font-size="11">类型: agent_call</text>
+<rect x="692" y="154" width="136" height="26" rx="8" fill="#ffffff" opacity=".24"/><text x="760" y="171" text-anchor="middle" fill="#fff" font-size="11">Agent: xiaoyan</text> <rect x="692" y="186" width="136" height="26" rx="8" fill="#ffffff" opacity=".24"/><text x="760" y="203" text-anchor="middle" fill="#fff" font-size="11">prompt: 模板…</text>
+<rect x="692" y="218" width="136" height="40" rx="8" fill="#ffffff" opacity=".24"/><text x="760" y="236" text-anchor="middle" fill="#fff" font-size="11">输入 / 输出 / 耗时</text> <text x="760" y="254" text-anchor="middle" fill="#fff" font-size="11">（学习导向可查）</text>
+</g>
+</svg>
+<div class="fig-cap">编辑器三段式布局：顶部工具栏 → 左工具箱 + 中央画布 + 右属性面板。节点/连线状态与后端 <code>Workflow.to_dict()</code> 双向同步。</div>
+</div>
+
+<h3>关键交互实现</h3>
+<ul>
+  <li><strong>节点渲染</strong>：自定义 <code>WorkflowFlowNode</code> 组件（第 81 行起），按 <code>NODE_TYPE_META</code> 取颜色与文案，左右各一个 <code>Handle</code> 端口用于连线。</li>
+  <li><strong>条件连线自动生成</strong>：<code>onConnect</code>（第 335 行起）检测到源节点是 condition 时，自动把 <code>sourceHandle</code> 定为 true/false 并写入 <code>condition: 'data["result"] == true|false'</code>，用户不用手写表达式。</li>
+  <li><strong>双向转换</strong>：<code>toFlowNode</code> / <code>fromFlowNode</code> / <code>fromFlowEdge</code> 在 React Flow 节点结构与后端 DAG 结构之间互转（保存时剔除运行时字段）。</li>
+  <li><strong>运行即保存</strong>：<code>handleRun</code> 先 <code>handleSave()</code> 把当前画布落库再执行，保证"执行的定义 = 眼睛看到的画布"；后台执行 + 每 1.2s 轮询 <code>/api/workflows/{id}</code> 同步节点状态（<code>syncRunState</code>）。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="运行态节点状态图">
+<defs> <linearGradient id="wf-s-run" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+<linearGradient id="wf-s-ok" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22a45c"/><stop offset="1" stop-color="#4ade80"/></linearGradient> <linearGradient id="wf-s-fail" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#de3b46"/><stop offset="1" stop-color="#fb7185"/></linearGradient>
+<linearGradient id="wf-s-skip" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa0a6"/><stop offset="1" stop-color="#c4c7cc"/></linearGradient> <linearGradient id="wf-s-wait" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d97706"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+</defs> <g font-family="PingFang SC, sans-serif">
+<rect x="20" y="40" width="152" height="110" rx="14" fill="url(#wf-s-run)"/> <circle cx="56" cy="78" r="7" fill="#fff"/><text x="96" y="83" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">running</text>
+<text x="96" y="108" text-anchor="middle" fill="#eff6ff" font-size="11">蓝色 · 正在执行</text> <text x="96" y="128" text-anchor="middle" fill="#eff6ff" font-size="11">（前台轮询高亮）</text>
+<rect x="182" y="40" width="152" height="110" rx="14" fill="url(#wf-s-ok)"/> <circle cx="218" cy="78" r="7" fill="#fff"/><text x="258" y="83" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">completed</text>
+<text x="258" y="108" text-anchor="middle" fill="#ecfdf5" font-size="11">绿色 · 成功</text> <text x="258" y="128" text-anchor="middle" fill="#ecfdf5" font-size="11">输出可点开查看</text>
+<rect x="344" y="40" width="152" height="110" rx="14" fill="url(#wf-s-fail)"/> <circle cx="380" cy="78" r="7" fill="#fff"/><text x="420" y="83" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">failed</text>
+<text x="420" y="108" text-anchor="middle" fill="#fff1f2" font-size="11">红色 · 失败</text> <text x="420" y="128" text-anchor="middle" fill="#fff1f2" font-size="11">错误信息可查</text>
+<rect x="506" y="40" width="152" height="110" rx="14" fill="url(#wf-s-skip)"/> <circle cx="542" cy="78" r="7" fill="#fff"/><text x="582" y="83" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">skipped</text>
+<text x="582" y="108" text-anchor="middle" fill="#f8fafc" font-size="11">灰色 · 跳过</text> <text x="582" y="128" text-anchor="middle" fill="#f8fafc" font-size="11">未走的分支</text>
+<rect x="668" y="40" width="152" height="110" rx="14" fill="url(#wf-s-wait)"/> <circle cx="704" cy="78" r="7" fill="#fff"/><text x="744" y="83" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">waiting</text>
+<text x="744" y="108" text-anchor="middle" fill="#fffbeb" font-size="11">琥珀 · 等待审批</text> <text x="744" y="128" text-anchor="middle" fill="#fffbeb" font-size="11">审批通过后继续</text>
+</g>
+</svg>
+<div class="fig-cap">运行态五色（与前端 <code>STATUS_META</code> 一致）：执行时画布节点实时高亮，点节点看输入/输出/耗时/错误——学习导向的"过程可见"。</div>
+</div>
+</section>
+
+<section id="templates">
+<h2>模板库:三个内置模板</h2>
+<p>替代旧版硬编码的 <code>POST /api/workflows/demo/create</code>，模板以数据驱动定义在 <code>main.py</code> 的 <code>WORKFLOW_TEMPLATES</code>（第 1469-1551 行），通过 <code>GET /api/workflow-templates</code> 列出、<code>POST /api/workflows/from-template</code> 实例化（重映射所有节点/连线 id 为新 uuid，避免重复）：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三个内置模板概览图">
+<defs> <linearGradient id="wf-t-agt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+<linearGradient id="wf-t-tool" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ea580c"/><stop offset="1" stop-color="#fb923c"/></linearGradient> <linearGradient id="wf-t-cond" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+<linearGradient id="wf-t-tf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient> <linearGradient id="wf-t-hr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d97706"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+<marker id="wf-t-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"> <path d="M 0 1 L 9 5 L 0 9 Q 2.5 5 0 1" fill="#8b8e96"/>
+</marker> </defs>
+<g font-family="PingFang SC, sans-serif"> <text x="20" y="30" text-anchor="start" fill="#3730a3" font-size="13" font-weight="700">① research-report 调研 → 分析 → 报告（顺序）</text>
+<rect x="20" y="42" width="120" height="44" rx="10" fill="url(#wf-t-tool)"/><text x="80" y="61" text-anchor="middle" fill="#fff" font-size="12">搜索信息</text><text x="80" y="77" text-anchor="middle" fill="#fff7ed" font-size="10">web_search</text> <rect x="200" y="42" width="120" height="44" rx="10" fill="url(#wf-t-agt)"/><text x="260" y="61" text-anchor="middle" fill="#fff" font-size="12">分析数据</text><text x="260" y="77" text-anchor="middle" fill="#f5f3ff" font-size="10">xiaoyan</text>
+<rect x="380" y="42" width="120" height="44" rx="10" fill="url(#wf-t-agt)"/><text x="440" y="61" text-anchor="middle" fill="#fff" font-size="12">生成报告</text><text x="440" y="77" text-anchor="middle" fill="#f5f3ff" font-size="10">keling</text> <path d="M 140 64 L 196 64" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/>
+<path d="M 320 64 L 376 64" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/> <text x="20" y="128" text-anchor="start" fill="#3730a3" font-size="13" font-weight="700">② content-approval 内容审核发布（条件 + 审批）</text>
+<rect x="20" y="140" width="110" height="44" rx="10" fill="url(#wf-t-agt)"/><text x="75" y="159" text-anchor="middle" fill="#fff" font-size="12">生成内容</text><text x="75" y="175" text-anchor="middle" fill="#f5f3ff" font-size="10">keling</text> <rect x="190" y="140" width="110" height="44" rx="10" fill="url(#wf-t-cond)"/><text x="245" y="159" text-anchor="middle" fill="#fff" font-size="12">敏感判断</text><text x="245" y="175" text-anchor="middle" fill="#eff6ff" font-size="10">表达式</text>
+<rect x="360" y="112" width="110" height="44" rx="10" fill="url(#wf-t-hr)"/><text x="415" y="131" text-anchor="middle" fill="#fff" font-size="12">人工审核</text><text x="415" y="147" text-anchor="middle" fill="#fffbeb" font-size="10">HITL</text> <rect x="530" y="112" width="110" height="44" rx="10" fill="url(#wf-t-tf)"/><text x="585" y="131" text-anchor="middle" fill="#fff" font-size="12">✅ 发布</text>
+<rect x="530" y="200" width="110" height="44" rx="10" fill="url(#wf-t-tf)"/><text x="585" y="219" text-anchor="middle" fill="#fff" font-size="12">⛔ 拦截</text> <path d="M 130 162 L 186 162" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/>
+<path d="M 300 152 C 320 130 330 120 356 120" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/> <text x="322" y="112" text-anchor="middle" fill="#55585f" font-size="10">true</text>
+<path d="M 300 178 C 340 218 460 222 526 222" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/> <text x="410" y="238" text-anchor="middle" fill="#55585f" font-size="10">false</text>
+<path d="M 470 134 L 526 134" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/> <text x="20" y="264" text-anchor="start" fill="#3730a3" font-size="13" font-weight="700">③ code-review 代码评审（Agent + 人工确认）</text>
+<rect x="20" y="276" width="110" height="44" rx="10" fill="url(#wf-t-agt)"/><text x="75" y="295" text-anchor="middle" fill="#fff" font-size="12">生成代码</text><text x="75" y="311" text-anchor="middle" fill="#f5f3ff" font-size="10">xiaoma</text> <rect x="190" y="276" width="110" height="44" rx="10" fill="url(#wf-t-agt)"/><text x="245" y="295" text-anchor="middle" fill="#fff" font-size="12">技术评审</text><text x="245" y="311" text-anchor="middle" fill="#f5f3ff" font-size="10">xiaoyan</text>
+<rect x="360" y="276" width="110" height="44" rx="10" fill="url(#wf-t-hr)"/><text x="415" y="295" text-anchor="middle" fill="#fff" font-size="12">人工确认</text> <rect x="530" y="276" width="110" height="44" rx="10" fill="url(#wf-t-tf)"/><text x="585" y="295" text-anchor="middle" fill="#fff" font-size="12">完成</text>
+<path d="M 130 298 L 186 298" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/> <path d="M 300 298 L 356 298" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/>
+<path d="M 470 298 L 526 298" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#wf-t-arr)"/> </g>
+</svg>
+<div class="fig-cap">三个内置模板覆盖三种拓扑：纯顺序 / 条件分支 + 人工审核 / 多 Agent 接力 + 人工确认。新建工作流时可选「从模板开始（可编辑）」或「空白开始」。</div>
+</div>
+
+<table>
+  <thead><tr><th>模板 id</th><th>名称</th><th>拓扑亮点</th><th>节点组合</th></tr></thead>
+  <tbody>
+    <tr><td><code>research-report</code></td><td>调研 → 分析 → 报告</td><td>经典顺序流水线，演示工具 → Agent 接力</td><td>tool_call(web_search) → agent_call(xiaoyan) → agent_call(keling)</td></tr>
+    <tr><td><code>content-approval</code></td><td>内容审核发布</td><td>条件分支 + 人工审核，边条件用 <code>data["result"]</code></td><td>agent_call → condition → human_review → transform（发布/拦截双分支）</td></tr>
+    <tr><td><code>code-review</code></td><td>代码评审</td><td>多 Agent 接力 + 人工确认收尾（HITL）</td><td>agent_call(xiaoma) → agent_call(xiaoyan) → human_review → transform</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="compare">
+<h2>对比评分:n8n / Dify / Flowise</h2>
+<p>工作流编排的业内参照是 n8n（代码优先的可视化自动化）、Dify（LLM 应用平台）、Flowise（拖拽式 LLM 编排）。评分原则：<strong>功能完整性 × 实现深度 × 生产就绪度</strong>，1-5 星。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="工作流能力对比条形图">
+<defs> <linearGradient id="wf-c-bar" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+</defs> <g font-family="PingFang SC, sans-serif">
+<text x="240" y="34" text-anchor="middle" fill="#8b8e96" font-size="11">0 ★</text> <text x="380" y="34" text-anchor="middle" fill="#8b8e96" font-size="11">1 ★</text>
+<text x="520" y="34" text-anchor="middle" fill="#8b8e96" font-size="11">2 ★</text> <text x="660" y="34" text-anchor="middle" fill="#8b8e96" font-size="11">3 ★</text>
+<text x="800" y="34" text-anchor="middle" fill="#8b8e96" font-size="11">4 ★</text> <text x="940" y="34" text-anchor="middle" fill="#8b8e96" font-size="11">5 ★</text>
+<g> <text x="20" y="76" fill="#44475f" font-size="13" font-weight="600">编排模型</text>
+<rect x="140" y="60" width="0" height="20" rx="10" fill="url(#wf-c-bar)"/> <rect x="140" y="60" width="700" height="20" rx="10" fill="url(#wf-c-bar)"/><text x="760" y="75" text-anchor="end" fill="#3730a3" font-size="13" font-weight="700">4.0 ★</text>
+</g> <g>
+<text x="20" y="116" fill="#44475f" font-size="13" font-weight="600">真实执行</text> <rect x="140" y="100" width="630" height="20" rx="10" fill="url(#wf-c-bar)"/><text x="760" y="115" text-anchor="end" fill="#3730a3" font-size="13" font-weight="700">3.6 ★</text>
+</g> <g>
+<text x="20" y="156" fill="#44475f" font-size="13" font-weight="600">持久化</text> <rect x="140" y="140" width="770" height="20" rx="10" fill="url(#wf-c-bar)"/><text x="760" y="155" text-anchor="end" fill="#3730a3" font-size="13" font-weight="700">4.4 ★</text>
+</g> <g>
+<text x="20" y="196" fill="#44475f" font-size="13" font-weight="600">可视化</text> <rect x="140" y="180" width="750" height="20" rx="10" fill="url(#wf-c-bar)"/><text x="760" y="195" text-anchor="end" fill="#3730a3" font-size="13" font-weight="700">4.3 ★</text>
+</g> <g>
+<text x="20" y="236" fill="#44475f" font-size="13" font-weight="600">并行分支</text> <rect x="140" y="220" width="610" height="20" rx="10" fill="url(#wf-c-bar)"/><text x="760" y="235" text-anchor="end" fill="#3730a3" font-size="13" font-weight="700">3.5 ★</text>
+</g> <text x="140" y="286" fill="#8b8e96" font-size="12">评分刻度：以 5 ★ 为满（约 140px/星）。持久化与可视化是自研亮点，真实执行与并行分支受"学习级"深度限制。</text>
+</g>
+</svg>
+<div class="fig-cap">五维度自评：DAG 建模与 SQLite 持久化做得扎实；并行分支虽有（多出边 + gather），但缺并行度控制与合并语义。</div>
+</div>
+
+<table>
+  <thead><tr><th style="width:14%">维度</th><th>做了什么</th><th>n8n</th><th>Dify</th><th>Flowise</th><th style="width:14%">本项目</th></tr></thead>
+  <tbody>
+    <tr><td><strong>编排模型</strong></td><td>节点 + 连线 DAG，边条件表达分支，多出边并行</td><td><span class="rating r-5">5.0 ★</span></td><td><span class="rating r-5">4.5 ★</span></td><td><span class="rating r-4">4.0 ★</span></td><td><span class="rating r-4">4.0 ★</span></td></tr>
+    <tr><td><strong>真实执行</strong></td><td>五类 handler 接 AgentManager / ToolRegistry / 审批，mock 透明兜底</td><td><span class="rating r-5">5.0 ★</span></td><td><span class="rating r-5">4.5 ★</span></td><td><span class="rating r-4">4.0 ★</span></td><td><span class="rating r-4">3.6 ★</span></td></tr>
+    <tr><td><strong>持久化</strong></td><td>workflow_defs / workflow_runs 双表，启动回填统计，历史可查</td><td><span class="rating r-5">5.0 ★</span></td><td><span class="rating r-5">4.5 ★</span></td><td><span class="rating r-4">3.5 ★</span></td><td><span class="rating r-4">4.4 ★</span></td></tr>
+    <tr><td><strong>可视化</strong></td><td>React Flow 三栏编辑器、运行态五色高亮、运行历史面板</td><td><span class="rating r-5">5.0 ★</span></td><td><span class="rating r-4">4.0 ★</span></td><td><span class="rating r-4">4.0 ★</span></td><td><span class="rating r-4">4.3 ★</span></td></tr>
+    <tr><td><strong>并行分支</strong></td><td>多出边同时满足即 <code>asyncio.gather</code>；缺并行度上限、join 合并、错误重试</td><td><span class="rating r-5">5.0 ★</span></td><td><span class="rating r-4">4.0 ★</span></td><td><span class="rating r-4">3.5 ★</span></td><td><span class="rating r-3">3.5 ★</span></td></tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>结论</strong>：工作流模块在本项目中属于<strong>亮点模块</strong>——DAG 建模、真实执行接线、SQLite 持久化、React Flow 编辑器形成了完整闭环，面试叙事强（"我用 React Flow 实现了可视化 DAG 工作流编排器，每一步真实调用 AG2 Agent 和内置工具"）。与 n8n 的差距主要在工程深度：无并行度控制、无失败重试策略、无版本控制、无跨工作流调用。</div>
+</section>
+
+<section id="tour">
+<h2>代码导读</h2>
+<p>建议按「数据模型 → 引擎执行 → 接线 → 前端编辑器」的顺序阅读：</p>
+
+<table>
+  <thead><tr><th>阅读顺序</th><th>文件</th><th>关键符号</th><th>看什么</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>backend/app/workflow/engine.py</code></td><td><code>WorkflowNode</code> / <code>WorkflowEdge</code> / <code>Workflow</code> / <code>WorkflowRun</code></td><td>DAG 数据模型、运行时字段、to_dict 序列化</td></tr>
+    <tr><td>2</td><td><code>backend/app/workflow/engine.py</code></td><td><code>evaluate_condition</code> / <code>render_template</code> / <code>resolve_path</code> / <code>_stringify</code></td><td>安全求值器白名单、模板渲染路径解析</td></tr>
+    <tr><td>3</td><td><code>backend/app/workflow/engine.py</code></td><td><code>execute_workflow</code> / <code>_run_dag</code> / <code>_edge_satisfied</code> / <code>_execute_node</code> / <code>_default_handler</code></td><td>种子节点、出边触发、并行 gather、跳过语义、mock 兜底</td></tr>
+    <tr><td>4</td><td><code>backend/app/workflow/engine.py</code></td><td><code>_persist_workflow</code> / <code>_persist_run</code> / <code>load_from_db</code> / <code>get_runs</code></td><td>SQLite 读写、启动加载、统计回填</td></tr>
+    <tr><td>5</td><td><code>backend/app/main.py</code></td><td><code>_register_workflow_handlers</code> / 五个 handler</td><td>真实执行接线：send_message / execute / 审批 / 模板</td></tr>
+    <tr><td>6</td><td><code>backend/app/main.py</code></td><td><code>WORKFLOW_TEMPLATES</code> / <code>create_from_template</code> / 工作流 API 系列</td><td>模板数据驱动定义、id 重映射、CRUD + 执行 + 取消端点</td></tr>
+    <tr><td>7</td><td><code>backend/app/models/__init__.py</code></td><td><code>WorkflowDef</code> / <code>WorkflowRun</code></td><td>两张表的列结构</td></tr>
+    <tr><td>8</td><td><code>frontend/src/components/workspace/workflow/WorkflowEditor.tsx</code></td><td><code>WorkflowFlowNode</code> / <code>onConnect</code> / <code>handleRun</code> / <code>syncRunState</code></td><td>自定义节点、条件连线自动生成、后台运行轮询高亮</td></tr>
+    <tr><td>9</td><td><code>frontend/src/components/workspace/workflow/workflowTypes.ts</code></td><td><code>NODE_TYPE_META</code> / <code>STATUS_META</code></td><td>节点配色与状态文案（前后端约定的"视觉字典"）</td></tr>
+  </tbody>
+</table>
+
+<h3>API 一览</h3>
+<table>
+  <thead><tr><th>端点</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /api/workflows</code></td><td>列出工作流（按更新时间倒序）</td></tr>
+    <tr><td><code>POST /api/workflows</code></td><td>创建（DAG nodes + edges）</td></tr>
+    <tr><td><code>PUT /api/workflows/{id}</code></td><td>更新定义（编辑器保存）</td></tr>
+    <tr><td><code>DELETE /api/workflows/{id}</code></td><td>删除（连带删除运行历史）</td></tr>
+    <tr><td><code>POST /api/workflows/{id}/duplicate</code></td><td>复制（节点/连线 id 全部重映射）</td></tr>
+    <tr><td><code>GET /api/workflows/{id}</code></td><td>取单个（含节点状态，供轮询）</td></tr>
+    <tr><td><code>GET /api/workflows/{id}/runs</code></td><td>运行历史</td></tr>
+    <tr><td><code>POST /api/workflows/{id}/execute</code></td><td>执行（<code>background=true</code> 时后台跑，可轮询进度）</td></tr>
+    <tr><td><code>POST /api/workflows/{id}/cancel</code></td><td>取消运行中工作流</td></tr>
+    <tr><td><code>GET /api/workflow-templates</code> · <code>POST /api/workflows/from-template</code></td><td>模板列表 / 从模板创建</td></tr>
+    <tr><td><code>GET /api/workflows/stats</code></td><td>统计（运行中数 / 总步骤 / 总运行次数）</td></tr>
+  </tbody>
+</table>
+
+<div class="key">学习要点：① <strong>统一原语</strong>——顺序/并行/分支/审批全用"节点 + 带条件的边"表达；② <strong>引擎与能力解耦</strong>——引擎只认 handler 注册表，真实能力由 main.py 注入，换能力不改引擎；③ <strong>学习导向的透明</strong>——节点状态、输入输出、耗时全部可查，mock 兜底让无模型也能跑通全流程。</div>
+
+<div class="tip">动手练习：① 给模板库加一个"翻译 → 校对 → 发布"模板，练 DAG 定义；② 给 condition 表达式加一个 <code>data["count"] &gt;= 3</code> 的数值分支；③ 在 <code>_run_dag</code> 里加一个并行度上限（如 <code>asyncio.Semaphore(2)</code>），体会并行控制的成本；④ 前端给连线加上条件文案展示（React Flow <code>EdgeLabelRenderer</code>）。</div>
+</section>
+
+</main>
+</body>
+</html>

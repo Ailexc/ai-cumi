@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="对话与 Agent 编排">
+<meta name="doc:category" content="核心能力">
+<meta name="doc:order" content="3">
+<meta name="doc:description" content="私聊/群聊/流式输出/思考剥离/消息持久化:Agent 生命周期与 WebSocket 流式协议全解析">
+<meta name="doc:icon" content="message-square">
+<title>03 · 对话与 Agent 编排</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#overview" class="doc-toc-h2">功能概览:IM 化多 Agent 对话</a>
+  <a href="#lifecycle" class="doc-toc-h2">Agent 生命周期:创建与 real/mock 双模式</a>
+  <a href="#dm" class="doc-toc-h2">私聊与流式输出</a>
+  <a href="#thinking" class="doc-toc-h2">思考剥离:把「想」和「说」分开</a>
+  <a href="#group" class="doc-toc-h2">群聊编排:@ 路由与群主值班</a>
+  <a href="#persistence" class="doc-toc-h2">消息持久化:历史 200 条</a>
+  <a href="#scorecard" class="doc-toc-h2">对比评分:与 AG2 原生 GroupChat</a>
+  <a href="#guide" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">💬</div>
+  <div>
+    <h1>对话与 Agent 编排</h1>
+    <div class="hero-meta">私聊 · 群聊 · 流式输出 · 思考剥离 · 消息持久化 ｜ 建议先读 <b>02 · 架构总览</b> 的数据流章节</div>
+  </div>
+</div>
+
+<section id="overview">
+<h2>功能概览:IM 化多 Agent 对话</h2>
+<p><strong>对话与编排</strong>是 AiCumi 的「门面层」—— 用户打开界面看到的所有聊天能力都来自这一层。它的设计目标是把 <strong>AG2 的「Agent 执行原语」翻译成「IM 产品语义」</strong>:模型输出是一串 token,产品要把它变成"像微信一样"的对话体验。</p>
+
+<p>这一层由四个模块协作完成(都在 <code>backend/app/</code> 下):</p>
+<ul>
+  <li><code>agents/agent_manager.py</code> —— <strong>AgentManager</strong>:创建/管理 AG2 Agent、real/mock 双模式、流式产出;</li>
+  <li><code>chat/websocket_manager.py</code> —— <strong>WebSocketManager</strong>:维护连接集合、收发 JSON 协议消息;</li>
+  <li><code>services/message_store.py</code> —— <strong>MessageStore</strong>:消息落库与历史回放;</li>
+  <li><code>main.py</code> 的 <code>/ws</code> 处理器 —— 协议编排中枢:把 WS 事件翻译成对 Agent 的调用、把流式结果翻译回 WS 事件。</li>
+</ul>
+
+<table>
+  <thead><tr><th>能力</th><th>一句话实现</th><th>代码落点</th><th>关键事件 / 协议</th></tr></thead>
+  <tbody>
+    <tr><td>私聊</td><td>一个 Agent 对应一个房间,<code>room_id = agent_id</code></td><td><code>main.py</code> <code>/ws</code> 的 <code>chat.send</code> 分支</td><td><code>chat.chunk</code> / <code>chat.done</code></td></tr>
+    <tr><td>群聊</td><td>GroupChatManager 维护房间与成员,按 @ 路由响应者</td><td><code>agent_manager.py</code> <code>GroupChatManager</code></td><td><code>group.create</code> / <code>group.add-member</code></td></tr>
+    <tr><td>流式输出</td><td>AG2 <code>on_messages_stream</code> 逐 token 产出,WS 逐字转发</td><td><code>AgentManager.stream_message()</code></td><td><code>chat.chunk</code>(打字机效果)</td></tr>
+    <tr><td>思考剥离</td><td>剥离推理内容(前缀/标签两种格式),只推最终答案</td><td><code>AgentManager._real_stream()</code> / <code>_strip_reasoning_chunk()</code></td><td><code>chat.thinking</code> 指示器</td></tr>
+    <tr><td>持久化</td><td>SQLite <code>messages</code> 表,历史 200 条回放</td><td><code>services/message_store.py</code></td><td><code>chat.history</code></td></tr>
+  </tbody>
+</table>
+
+<div class="grid2">
+  <div class="card">
+    <h4>💬 私聊:像和同事 IM</h4>
+    <ul style="margin:8px 0 0">
+      <li>房间即 Agent:<code>room_id == agent_id</code>,点谁聊谁</li>
+      <li>对话是<strong>持续</strong>的,无「新建对话」机器范式</li>
+      <li>支持记忆注入(<code>chat.memory</code> 展示检索到的长期记忆)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>👥 群聊:一个群、多个员工</h4>
+    <ul style="margin:8px 0 0">
+      <li>选成员建群,指定<strong>群主</strong>(默认响应者)</li>
+      <li><code>@成员</code> 精准路由;不 @ 则由群主值班</li>
+      <li>每个响应 Agent 独立 <code>messageId</code>,各自流式渲染</li>
+    </ul>
+  </div>
+</div>
+
+<div class="key">核心设计:框架提供「执行原语」,产品提供「编排语义」。AG2 管"Agent 怎么跑",AiCumi 管"谁跟谁聊、聊完怎么存、怎么流式呈现、怎么剥离思考"。</div>
+</section>
+
+<section id="lifecycle">
+<h2>Agent 生命周期:创建与 real/mock 双模式</h2>
+<p>每个「员工」(可灵 / 小研 / 小码…)在 <code>AgentManager</code> 里对应两条记录:一份<strong>元数据</strong>(存在 <code>self.agents[agent_id]</code> 的 dict 里)和一份<strong>实例</strong>(存在 <code>self.agent_instances[agent_id]</code>,真实 AG2 Agent 或 <code>None</code>)。</p>
+
+<h3>创建:create_agent()</h3>
+<p><code>create_agent()</code>(<code>backend/app/agents/agent_manager.py</code>)先把元数据落盘到内存 dict,再走统一的 <code>_build_agent_instance()</code> 构建真实实例,最后根据实例是否为 <code>None</code> 标记 <code>mode</code>:</p>
+
+<pre><code>async def create_agent(self, agent_id, name, persona, role="assistant",
+                       tools=None, model_key=None, force_real=False):
+    if agent_id in self.agents:
+        raise ValueError(f"Agent {agent_id} already exists")
+    self.agents[agent_id] = {
+        "id": agent_id, "name": name, "persona": persona, "role": role,
+        "tools": tools or [], "is_active": True,
+        "force_real": force_real, "mode": "mock",
+        # ... created_at / updated_at ...
+    }
+    agent_instance = self._build_agent_instance(agent_id)
+    self.agent_instances[agent_id] = agent_instance
+    mode = "real" if agent_instance is not None else "mock"
+    self.agents[agent_id]["mode"] = mode
+    return agent_instance</code></pre>
+
+<h3>real / mock 双模式:_build_agent_instance()</h3>
+<p>构建真实 Agent 需要满足三个条件,<code>_build_agent_instance()</code> 里的判定逻辑是理解整个项目的钥匙:</p>
+
+<pre><code>use_real = (
+    HAS_REAL_AGENT                      # ① AG2 包已安装
+    and client is not None              # ② 有可用模型客户端(共享或 per-agent)
+    and (has_override                   # ③ 该成员显式绑定了模型(强制 real)
+         or not self.mock_mode          #    或全局未开 mock
+         or info.get("force_real"))     #    或创建时 force_real=True
+)</code></pre>
+
+<table>
+  <thead><tr><th>场景</th><th>结果</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>未配置任何模型</td><td><code>mock</code></td><td><code>AgentManager(mock_mode=True)</code> 默认;回复来自 <code>_mock_respond()</code> 的模板</td></tr>
+    <tr><td>配置默认模型并重启</td><td><code>real</code></td><td><code>set_model_client()</code> 挂上共享客户端,<code>model_client_stream=True</code></td></tr>
+    <tr><td>成员级模型覆盖</td><td>强制 <code>real</code></td><td><code>agent_model_clients[agent_id]</code> 存在时,即使全局 mock 也走真实模型</td></tr>
+    <tr><td><code>force_real=True</code></td><td>强制 <code>real</code></td><td>创建/更新成员时显式要求真实模式</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">学习要点:这套「mock 兜底」机制让项目<strong>没有 API Key 也能跑通全部 UI 和流程</strong>,是演示与开发解耦的关键设计;面试时可讲"我如何保证项目零配置可运行"。</div>
+
+<h3>实例热更新:rebuild_agent()</h3>
+<p>人设、模型或工具绑定变化后,调用 <code>rebuild_agent(agent_id)</code> 保留元数据、重建底层 <code>AssistantAgent</code> 实例,并同步更新 <code>mode</code>。它是「前端改完点保存 → 后端无缝换 Agent」的开关。</p>
+</section>
+
+<section id="dm">
+<h2>私聊与流式输出</h2>
+<p>私聊的完整链路跑在 <code>main.py</code> 的 <code>/ws</code> 处理器里(约 578-838 行),一条 WebSocket 连接同时承载<strong>指令下发</strong>(<code>chat.send</code>)与<strong>流式推送</strong>(<code>chat.chunk</code>)。协议事件如下:</p>
+
+<table>
+  <thead><tr><th>事件</th><th>方向</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td><code>chat.send</code></td><td>前端 → 后端</td><td>发消息,携带 <code>roomId / content / mentions / knowledgeScope</code></td></tr>
+    <tr><td><code>chat.memory</code></td><td>后端 → 前端</td><td>检索到的长期记忆(首个 chunk 前发出)</td></tr>
+    <tr><td><code>chat.thinking</code></td><td>后端 → 前端</td><td>模型进入推理阶段(UI 显示"思考中…")</td></tr>
+    <tr><td><code>chat.chunk</code></td><td>后端 → 前端</td><td>逐 token 正文,前端打字机渲染</td></tr>
+    <tr><td><code>chat.done</code></td><td>后端 → 前端</td><td>流结束,携带 <code>fullContent</code> 供前端固化</td></tr>
+    <tr><td><code>chat.history</code></td><td>请求 / 响应</td><td>按房间回放历史(默认 200 条)</td></tr>
+  </tbody>
+</table>
+
+<h3>实现原理:AG2 流式接口</h3>
+<p>AG2(autogen-agentchat 0.7.5)的 <code>AssistantAgent</code> 在构造时传入 <code>model_client_stream=True</code>,即可用 <code>on_messages_stream()</code> 异步迭代事件流。其中 <code>ModelClientStreamingChunkEvent</code> 是<strong>增量 token</strong>,最后一个事件是含 <code>chat_message</code> 的完整响应。AgentManager 把这层封装成「带哨兵」的异步生成器 <code>stream_message()</code>:</p>
+
+<ul>
+  <li><code>__MEMORY__:&lt;json&gt;</code> —— 检索到的长期记忆,WS 层翻译成 <code>chat.memory</code> 事件;</li>
+  <li><code>__THINKING__</code> —— 模型进入推理,WS 层翻译成 <code>chat.thinking</code> 事件(只发一次);</li>
+  <li>其余内容 —— 剥离思考后的正文 chunk,直接转发为 <code>chat.chunk</code>。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="私聊流式时序图">
+  <defs>
+    <linearGradient id="c3-1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="c3-2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="c3-3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="c3-4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <marker id="m3a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e6ad2"/></marker>
+    <marker id="m3b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#10b981"/></marker>
+    <marker id="m3c" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="24" width="150" height="42" rx="12" fill="url(#c3-1)"/><text x="95" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">前端 Web UI</text>
+    <rect x="240" y="24" width="150" height="42" rx="12" fill="url(#c3-2)"/><text x="315" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">WS 管理器</text>
+    <rect x="450" y="24" width="150" height="42" rx="12" fill="url(#c3-3)"/><text x="525" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AgentManager</text>
+    <rect x="660" y="24" width="170" height="42" rx="12" fill="url(#c3-4)"/><text x="745" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AG2 Agent</text>
+    <line x1="95" y1="66" x2="95" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="315" y1="66" x2="315" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="525" y1="66" x2="525" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="745" y1="66" x2="745" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <g font-size="11.5" fill="#44475f">
+      <path d="M95 92 C170 92 240 92 300 92" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3a)"/>
+      <text x="198" y="86" text-anchor="middle">1. chat.send{roomId, content}</text>
+      <path d="M315 124 C390 124 450 124 510 124" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3a)"/>
+      <text x="412" y="118" text-anchor="middle">2. stream_message() 异步生成器</text>
+      <path d="M525 156 C610 156 660 156 726 156" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3a)"/>
+      <text x="625" y="150" text-anchor="middle">3. on_messages_stream(流式)</text>
+      <path d="M745 188 C700 188 600 188 540 188" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#m3b)"/>
+      <text x="642" y="182" text-anchor="middle">4. ModelClientStreamingChunkEvent 逐 token</text>
+      <path d="M525 220 C450 220 390 220 330 220" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#m3b)"/>
+      <text x="428" y="214" text-anchor="middle">5. 思考剥离 + 哨兵 → chat.chunk</text>
+      <path d="M315 252 C240 252 180 252 120 252" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#m3b)"/>
+      <text x="218" y="246" text-anchor="middle">6. 打字机渲染(逐字追加)</text>
+      <path d="M95 284 C170 284 240 284 300 284" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#m3c)"/>
+      <text x="198" y="278" text-anchor="middle">7. chat.done{fullContent}</text>
+      <path d="M315 316 C390 316 450 316 510 316" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#m3c)"/>
+      <text x="412" y="310" text-anchor="middle">8. save_message 落库 + save_exchange 记忆</text>
+    </g>
+  </g>
+</svg>
+<div class="fig-cap">私聊流式时序:chat.send → 记忆检索 → on_messages_stream → 思考剥离 → chat.chunk 逐字推送 → chat.done + 落库。</div>
+</div>
+
+<ol>
+  <li><strong>发送</strong>:前端 <code>chat.send</code> 携带房间与内容;若带 <code>knowledgeScope</code> 还会先做 RAG 检索注入上下文。</li>
+  <li><strong>记忆检索</strong>:<code>build_memory_context()</code> 向量检索长期记忆,以 <code>__MEMORY__:</code> 哨兵先行发出。</li>
+  <li><strong>流式</strong>:<code>on_messages_stream()</code> 逐 token 产出 <code>ModelClientStreamingChunkEvent</code>。</li>
+  <li><strong>剥离与转发</strong>:<code>_real_stream()</code> 剥掉推理内容,正文以 <code>chat.chunk</code> 逐字推给浏览器。</li>
+  <li><strong>收尾</strong>:<code>chat.done</code> 携带完整内容;用户消息与回复分别落库,并把本轮问答写入长期记忆(<code>save_exchange</code>)。</li>
+</ol>
+</section>
+
+<section id="thinking">
+<h2>思考剥离:把「想」和「说」分开</h2>
+<p>推理模型(如 R1 系 / MiMo)会在输出里夹带<strong>内部思考过程</strong>。直接推给用户既打断体验、又浪费 token、还可能泄露 prompt 内部逻辑。AiCumi 在 <code>_real_stream()</code> 里处理<strong>两种格式</strong>的思考内容:</p>
+
+<h3>格式一:AG2 reasoning 前缀(推理内容通道)</h3>
+<p>OpenAI 兼容客户端对 R1 系模型会把推理内容放在独立通道:首个推理 chunk 以 <code>" thinking"</code> 开头,推理结束时出现 <code>" response"</code> 标记。<code>_real_stream()</code> 的逻辑:</p>
+<pre><code>if first_chunk:
+    first_chunk = False
+    if content.startswith(" thinking"):
+        in_reasoning = True          # 进入推理态,先发 __THINKING__ 哨兵
+        yield "__THINKING__"
+        content = content[len(" thinking"):]
+if in_reasoning:
+    if content.startswith(" response"):
+        in_reasoning = False         # 推理结束,恢复正文
+        content = content[len(" response"):]
+    else:
+        continue                     # 丢弃推理内容</code></pre>
+
+<h3>格式二:MiMo 内联 &lt;think&gt; 标签(跨 chunk 缓冲)</h3>
+<p>部分模型把思考直接嵌在正文里:<code>&lt;think&gt;...&lt;/think&gt;</code>。麻烦的是<strong>标签可能被切在两次 chunk 之间</strong>(比如 <code>&lt;thin</code> 和 <code>k&gt;...&lt;/think&gt;</code>),所以需要状态缓冲。<code>_strip_reasoning_chunk(content, state)</code> 接收一个 <code>tag_state</code> dict:</p>
+<pre><code>tag_state = {"open": False, "buffer": ""}   # open: 是否在 think 块内
+
+def _strip_reasoning_chunk(self, content, state):
+    out = []
+    if state["open"]:                        # 上块未闭合 → 先找 &lt;/think&gt;
+        idx = content.find("&lt;/think&gt;")
+        if idx == -1:
+            state["buffer"] += content       # 仍在块内,继续缓冲
+            return None
+        state["open"] = False
+        state["buffer"] = ""
+        content = content[idx + len("&lt;/think&gt;"):]   # 处理闭合后的尾巴
+    while True:                              # 本块内可能多次出现 &lt;think&gt;
+        o = content.find("&lt;think&gt;", i)
+        if o == -1:
+            out.append(content[i:]); break
+        out.append(content[i:o])
+        c = content.find("&lt;/think&gt;", o + len("&lt;think&gt;"))
+        if c == -1:
+            state["open"] = True             # 标签跨 chunk,置 open 等下一块
+            state["buffer"] = content[o + len("&lt;think&gt;"):]
+            break
+        i = c + len("&lt;/think&gt;")
+    return "".join(out) if out else None</code></pre>
+
+<p>配合逻辑:首次出现 <code>&lt;think&gt;</code> 时发 <code>__THINKING__</code> 哨兵;整块都是思考的 chunk 返回 <code>None</code>,WS 层 <code>continue</code> 跳过,不产生空消息。非推理模型(两个分支都不命中)内容<strong>原样透传</strong>。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="思考剥离双路径流程图">
+  <defs>
+    <linearGradient id="c3-5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="c3-6" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="c3-7" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="c3-8" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="c3-9" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <marker id="m3d" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e6ad2"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="300" y="20" width="260" height="56" rx="14" fill="url(#c3-5)"/>
+    <text x="430" y="46" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">模型流式输出 chunk</text>
+    <text x="430" y="64" text-anchor="middle" fill="#eef0fb" font-size="11">ModelClientStreamingChunkEvent · 逐 token</text>
+    <path d="M430 76 C430 96 225 96 225 104" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3d)"/>
+    <path d="M430 76 C430 96 635 96 635 104" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3d)"/>
+    <rect x="60" y="104" width="330" height="36" rx="10" fill="#f4f4f7" stroke="#e8e8ec"/>
+    <text x="225" y="127" text-anchor="middle" fill="#44475f" font-size="12.5" font-weight="600">AG2 reasoning 前缀模式</text>
+    <rect x="470" y="104" width="330" height="36" rx="10" fill="#f4f4f7" stroke="#e8e8ec"/>
+    <text x="635" y="127" text-anchor="middle" fill="#44475f" font-size="12.5" font-weight="600">MiMo 内联 &lt;think&gt; 标签模式</text>
+    <line x1="455" y1="104" x2="455" y2="400" stroke="#e8e8ec" stroke-width="1.5" stroke-dasharray="5 5"/>
+    <rect x="60" y="164" width="330" height="64" rx="14" fill="url(#c3-6)"/>
+    <text x="225" y="192" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">① 首 chunk 以 " thinking" 开头</text>
+    <text x="225" y="212" text-anchor="middle" fill="#fef3c7" font-size="11.5">in_reasoning=True · 发出 chat.thinking</text>
+    <rect x="60" y="246" width="330" height="64" rx="14" fill="url(#c3-7)"/>
+    <text x="225" y="274" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">② 遇 " response" 前全部丢弃</text>
+    <text x="225" y="294" text-anchor="middle" fill="#e0f2fe" font-size="11.5">推理内容不进入正文流</text>
+    <rect x="60" y="328" width="330" height="64" rx="14" fill="url(#c3-8)"/>
+    <text x="225" y="356" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">③ 之后 chunk 正常输出</text>
+    <text x="225" y="376" text-anchor="middle" fill="#d1fae5" font-size="11.5">恢复正文流 → chat.chunk</text>
+    <rect x="470" y="164" width="330" height="64" rx="14" fill="url(#c3-6)"/>
+    <text x="635" y="192" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">① chunk 中出现 &lt;think&gt;</text>
+    <text x="635" y="212" text-anchor="middle" fill="#fef3c7" font-size="11.5">tag_state.open=True · 缓冲 buffer</text>
+    <rect x="470" y="246" width="330" height="64" rx="14" fill="url(#c3-7)"/>
+    <text x="635" y="274" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">② 跨 chunk 缓冲直到 &lt;/think&gt;</text>
+    <text x="635" y="294" text-anchor="middle" fill="#e0f2fe" font-size="11.5">_strip_reasoning_chunk 逐块剥离</text>
+    <rect x="470" y="328" width="330" height="64" rx="14" fill="url(#c3-8)"/>
+    <text x="635" y="356" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">③ 返回剥离后的正文 chunk</text>
+    <text x="635" y="376" text-anchor="middle" fill="#d1fae5" font-size="11.5">整块均为思考 → 返回 None 跳过</text>
+    <path d="M225 140 L225 164" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M225 228 L225 246" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M225 310 L225 328" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M635 140 L635 164" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M635 228 L635 246" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M635 310 L635 328" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <rect x="180" y="416" width="500" height="38" rx="12" fill="url(#c3-9)"/>
+    <text x="430" y="440" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="600">两个分支都不命中 → 普通模型:内容原样透传(零开销)</text>
+  </g>
+</svg>
+<div class="fig-cap">思考剥离双路径:AG2 前缀模式(丢弃到 " response" 标记)与 MiMo 标签模式(跨 chunk 缓冲剥离)。</div>
+</div>
+
+<div class="note">为什么值得剥离:① 体验——用户只看到最终答案;② 成本——推理 token 不计入 UI 展示与落库;③ 隐私/安全——不外泄 prompt 内部推理;④ 持久化干净——落库的是"人话"。</div>
+</section>
+
+<section id="group">
+<h2>群聊编排:@ 路由与群主值班</h2>
+<p><code>GroupChatManager</code>(同一文件,<code>agent_manager.py</code> 后半部分)维护群聊房间:成员列表、群主、持久化。它<strong>不用 AG2 原生 GroupChat 的 speaker-selection 轮转</strong>,而是实现了一套更贴近 IM 的「@ 路由」语义。</p>
+
+<h3>房间与成员管理</h3>
+<ul>
+  <li><code>create_group_chat(room_id, name, agent_ids, owner_agent_id)</code>:校验成员有效性,写入内存并 <code>_persist_room()</code> 落库;</li>
+  <li><code>add_member()</code> / <code>remove_member()</code>:增删成员并同步持久化;</li>
+  <li><code>to_room()</code>:把内部 dict 转成前端 <code>room.list</code> 的形状(<code>memberAgentIds / ownerAgentId</code>);</li>
+  <li><code>load_persisted_rooms()</code>:启动时从 <code>group_rooms</code> 表恢复房间,已删除的成员会被过滤掉。</li>
+</ul>
+
+<h3>核心路由逻辑:_resolve_targets()</h3>
+<pre><code>def _resolve_targets(self, room_id, mentions):
+    members = self.group_chats[room_id]["agents"]
+    if mentions:                              # 有 @ → 只回被@者
+        targets = [aid for aid in mentions if aid in members]
+        return targets if targets else members # @ 了不在群里的 → 全体兜底
+    owner = self.group_chats[room_id].get("owner")
+    return [owner] if owner and owner in members else members   # 无 @ → 群主值班</code></pre>
+
+<h3>流式:stream_send() 逐 Agent 独立 messageId</h3>
+<p>群聊不推 <code>chat.done</code> —— 因为每个 Agent 的回复是<strong>独立消息</strong>。前端按 <code>messageId</code> 累积各自的消息气泡。注意群聊流式用 <code>use_memory=False</code>:避免 <code>__MEMORY__</code> 哨兵污染群协议,记忆注入仅限私聊。</p>
+
+<pre><code>async def stream_send(self, room_id, message, mentions=None):
+    for agent_id in self._resolve_targets(room_id, mentions):
+        message_id = str(uuid.uuid4())        # 每个响应 Agent 一个独立 ID
+        async for chunk in self.agent_manager.stream_message(agent_id, message, use_memory=False):
+            yield (agent_id, chunk, message_id)   # WS 层转发为 chat.chunk</code></pre>
+
+<div class="fig">
+<svg viewBox="0 0 860 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="群聊@路由示意图">
+  <defs>
+    <linearGradient id="c3-10" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="c3-11" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="c3-12" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="c3-13" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <marker id="m3e" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e6ad2"/></marker>
+    <marker id="m3f" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#10b981"/></marker>
+    <marker id="m3g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#b45309"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="30" y="20" width="240" height="60" rx="14" fill="url(#c3-10)"/>
+    <text x="150" y="46" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">用户群聊消息</text>
+    <text x="150" y="66" text-anchor="middle" fill="#eef0fb" font-size="11.5">「@小码 帮我写个脚本」/「有没有空?」</text>
+    <path d="M270 50 C290 50 300 50 310 50" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3e)"/>
+    <rect x="310" y="22" width="240" height="56" rx="14" fill="#f4f4f7" stroke="#e8e8ec"/>
+    <text x="430" y="48" text-anchor="middle" fill="#44475f" font-size="13" font-weight="700">_resolve_targets()</text>
+    <text x="430" y="66" text-anchor="middle" fill="#8b8e96" font-size="11">mentions ∩ members / owner</text>
+    <rect x="590" y="30" width="240" height="40" rx="12" fill="#f4f4f7" stroke="#e8e8ec"/>
+    <text x="710" y="54" text-anchor="middle" fill="#8b8e96" font-size="12">mentions=[xiaoma] 或 None</text>
+    <path d="M430 78 C430 100 150 100 150 118" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3e)"/>
+    <path d="M430 78 C430 100 710 100 710 118" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m3e)"/>
+    <rect x="30" y="118" width="240" height="46" rx="12" fill="url(#c3-11)"/>
+    <text x="150" y="146" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">有 @ → 只回被@者</text>
+    <rect x="590" y="118" width="240" height="46" rx="12" fill="url(#c3-12)"/>
+    <text x="710" y="146" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">无 @ → 群主值班</text>
+    <rect x="30" y="196" width="240" height="66" rx="14" fill="url(#c3-10)" opacity=".45"/>
+    <text x="150" y="222" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">可灵(群主)</text>
+    <text x="150" y="242" text-anchor="middle" fill="#eef0fb" font-size="11">web_search + datetime</text>
+    <text x="150" y="258" text-anchor="middle" fill="#fecaca" font-size="11" font-weight="700">✕ 不响应(未被@)</text>
+    <rect x="310" y="196" width="240" height="66" rx="14" fill="url(#c3-13)" opacity=".45"/>
+    <text x="430" y="222" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">小研</text>
+    <text x="430" y="242" text-anchor="middle" fill="#f1f5f9" font-size="11">web_search + json_parse</text>
+    <text x="430" y="258" text-anchor="middle" fill="#fecaca" font-size="11" font-weight="700">✕ 不响应</text>
+    <rect x="590" y="196" width="240" height="66" rx="14" fill="url(#c3-12)"/>
+    <text x="710" y="222" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">小码</text>
+    <text x="710" y="242" text-anchor="middle" fill="#fef3c7" font-size="11">code_execute + file_*</text>
+    <text x="710" y="258" text-anchor="middle" fill="#fef9c3" font-size="11" font-weight="700">✔ 被 @ → 回复</text>
+    <path d="M150 164 C150 180 710 180 710 196" stroke="#10b981" stroke-width="2.5" fill="none" stroke-dasharray="5 4" marker-end="url(#m3f)"/>
+    <path d="M710 164 C710 180 150 180 150 196" stroke="#b45309" stroke-width="2.5" fill="none" stroke-dasharray="5 4" marker-end="url(#m3g)"/>
+    <rect x="30" y="292" width="800" height="52" rx="14" fill="url(#c3-13)"/>
+    <text x="430" y="314" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">stream_send:每个响应 Agent 独立 messageId → 各自 chat.chunk 流式渲染</text>
+    <text x="430" y="332" text-anchor="middle" fill="#f1f5f9" font-size="11.5">@ 情形:仅小码回复;不@ 情形:群主可灵回复 · 群聊无 chat.done,前端按 messageId 累积</text>
+    <path d="M150 262 L150 292" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M430 262 L430 292" stroke="#94a3b8" stroke-width="2" fill="none"/>
+    <path d="M710 262 L710 292" stroke="#94a3b8" stroke-width="2" fill="none"/>
+  </g>
+</svg>
+<div class="fig-cap">群聊 @ 路由:@ 某人只回被@者;不 @ 由群主值班;每个响应 Agent 独立消息。</div>
+</div>
+
+<h3>SQLite 持久化房间:GroupRoom 表</h3>
+<p>群聊房间存 <code>group_rooms</code> 表(<code>backend/app/models/__init__.py</code>):<code>room_id / name / owner_agent_id / member_agent_ids(JSON 数组)</code>。增删成员时 <code>_persist_room()</code> 覆盖写回;重启时 <code>load_persisted_rooms()</code> 恢复并过滤已不存在的成员。</p>
+
+<table>
+  <thead><tr><th>事件</th><th>后端动作</th><th>返回</th></tr></thead>
+  <tbody>
+    <tr><td><code>group.create</code></td><td><code>create_group_chat()</code> + <code>_persist_room()</code></td><td><code>room.created</code></td></tr>
+    <tr><td><code>group.add-member</code></td><td><code>add_member()</code> + 持久化</td><td><code>room.list</code> 刷新</td></tr>
+    <tr><td><code>chat.send</code>(群房间)</td><td>存用户消息 → <code>stream_send()</code> 逐 Agent 流式 → 存各 Agent 回复</td><td>多路 <code>chat.chunk</code>(各自 messageId)</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">与 AG2 原生 GroupChat 的差异:原生用 speaker-selection 自动轮转发言,适合「研讨会」;AiCumi 用 @ 路由 + 群主值班,适合「IM 群聊」。代价是放弃了 AG2 内置的群聊状态机,换来了更直觉的产品体验。</div>
+</section>
+
+<section id="persistence">
+<h2>消息持久化:历史 200 条</h2>
+<p>所有消息落在 SQLite 的 <code>messages</code> 表(<code>backend/app/models/__init__.py</code> 的 <code>Message</code> 模型):<code>id / role(user|assistant) / content / room_id / agent_id / timestamp</code>。封装在 <code>backend/app/services/message_store.py</code>,只有三个函数,非常干净:</p>
+
+<pre><code>def save_message(db, room_id, role, content, agent_id=None) -> Message:
+    msg = Message(room_id=room_id, role=role, content=content, agent_id=agent_id)
+    db.add(msg); db.commit(); db.refresh(msg)
+    return msg
+
+def load_history(db, room_id, limit=200) -> List[Message]:
+    return (db.query(Message)
+            .filter(Message.room_id == room_id)
+            .order_by(Message.timestamp.asc())
+            .limit(limit).all())
+
+def to_frontend_message(m: Message) -> dict:
+    ts = m.timestamp
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return {"role": m.role, "content": m.content,
+            "timestamp": int(ts.timestamp() * 1000), "agentId": m.agent_id}</code></pre>
+
+<h3>落库时机(都在 /ws 处理器里)</h3>
+<ul>
+  <li><strong>私聊</strong>:收到 <code>chat.send</code> 先存用户消息(<code>agent_id=room_id</code>),流结束后存 assistant 完整回复,随后 <code>save_exchange()</code> 把问答写入长期记忆;</li>
+  <li><strong>群聊</strong>:存用户消息,再把 <code>stream_send</code> 累积出的每个 Agent 回复分别落库(<code>agent_id=对应成员</code>);</li>
+  <li><strong>历史回放</strong>:前端发 <code>chat.history{roomId}</code>,后端 <code>load_history(db, room_id, limit=200)</code> 按时间正序返回,<code>to_frontend_message()</code> 转成前端形状。</li>
+</ul>
+
+<div class="tip">学习要点:<code>timestamp</code> 用 UTC 存储,转前端时补时区并换算成毫秒时间戳 —— 这是前后端时间处理的一个典型细节。</div>
+</section>
+
+<section id="scorecard">
+<h2>对比评分:与 AG2 原生 GroupChat</h2>
+<p>评分原则:<strong>功能完整性 × 实现深度 × 产品体验 × 生产就绪度</strong>,1-5 星,参照对象是 AG2 / AutoGen 原生的 <code>GroupChat</code> 编排。</p>
+
+<table>
+  <thead><tr><th style="width:17%">维度</th><th>做了什么</th><th>AG2 原生 GroupChat</th><th style="width:13%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>IM 体验(@ 路由/值班)</strong></td>
+      <td>@ 提及精确路由、无 @ 群主值班、逐 Agent 独立消息</td>
+      <td>speaker-selection 自动轮转,无 @ 概念</td>
+      <td><span class="rating r-5">5.0 ★</span></td>
+      <td>远超原生;缺 @ 全部(@所有人)与提及高亮解析</td>
+    </tr>
+    <tr>
+      <td><strong>流式体验</strong></td>
+      <td>chat.chunk 逐字推送 + chat.thinking 指示器 + 打字机渲染</td>
+      <td>支持流式但需自行接事件循环</td>
+      <td><span class="rating r-5">4.8 ★</span></td>
+      <td>已接近原生;缺取消/中断已生成流的指令</td>
+    </tr>
+    <tr>
+      <td><strong>持久化</strong></td>
+      <td>messages 表 + GroupRoom 表,历史 200 条,房间重启恢复</td>
+      <td>不内置持久化,需自行实现</td>
+      <td><span class="rating r-5">4.5 ★</span></td>
+      <td>原生没有,属自研加分;缺分页与全文检索</td>
+    </tr>
+    <tr>
+      <td><strong>框架依赖深度</strong></td>
+      <td>深度依赖 AG2 AssistantAgent / on_messages_stream</td>
+      <td>——</td>
+      <td><span class="rating r-3">3.0 ★</span></td>
+      <td>引擎耦合是双刃剑:升级 AG2 需跟随其 API 变化</td>
+    </tr>
+    <tr>
+      <td><strong>会话上下文管理</strong></td>
+      <td>无显式上下文窗口裁剪,靠记忆检索兜底</td>
+      <td>内置 context 管理与 token 控制</td>
+      <td><span class="rating r-2">2.5 ★</span></td>
+      <td>长对话 token 溢出风险;可引入消息摘要/窗口裁剪</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>总体评分:4.0 / 5.0</strong> —— 作为"面向 IM 体验的多 Agent 对话层"超过 AG2 原生 GroupChat;作为"生产级编排"在上下文管理与取消语义上仍是学习级。核心结论:用自己的产品语义包住框架的执行原语,是 Agent 应用开发的正确姿势。</div>
+</section>
+
+<section id="guide">
+<h2>代码导读</h2>
+<p>按「创建 → 流式 → 剥离 → 群聊 → 持久化」的顺序读,每个函数都能在 20 分钟内讲清楚:</p>
+
+<table>
+  <thead><tr><th>函数</th><th>位置</th><th>作用</th><th>关键点</th></tr></thead>
+  <tbody>
+    <tr><td><code>create_agent()</code></td><td><code>agents/agent_manager.py</code></td><td>创建 Agent:存元数据 + 构建实例 + 标 mode</td><td>先写 dict 再走统一构建路径</td></tr>
+    <tr><td><code>_build_agent_instance()</code></td><td>同上</td><td>按 real/mock 判定构建 AssistantAgent,绑定工具</td><td><code>agent_model_clients</code> 覆盖、<code>force_real</code></td></tr>
+    <tr><td><code>stream_message()</code></td><td>同上</td><td>记忆注入 + 分流 real/mock,产出带哨兵 chunk</td><td><code>__MEMORY__:</code> / <code>__THINKING__</code> 哨兵</td></tr>
+    <tr><td><code>_real_stream()</code> + <code>_strip_reasoning_chunk()</code></td><td>同上</td><td>两种思考格式的剥离 + 跨 chunk 缓冲</td><td><code>tag_state</code> 缓冲、<code>in_reasoning</code> 状态机</td></tr>
+    <tr><td><code>_resolve_targets()</code> + <code>stream_send()</code></td><td>同上(GroupChatManager)</td><td>@ 路由/群主值班 + 逐 Agent 独立 messageId 流式</td><td>群聊 <code>use_memory=False</code></td></tr>
+    <tr><td><code>save_message()</code> / <code>load_history()</code></td><td><code>services/message_store.py</code></td><td>落库与 200 条历史回放</td><td>UTC 时间戳 → 毫秒时间戳</td></tr>
+  </tbody>
+</table>
+
+<ol>
+  <li>先看 <code>main.py</code> 的 <code>/ws</code> 处理器(578-838 行):把"协议"和"编排"串起来看,理解 <code>chat.send</code> 如何分流私聊/群聊;</li>
+  <li>再看 <code>stream_message()</code> → <code>_real_stream()</code>:追一遍 chunk 的完整生命周期(产出 → 剥离 → 哨兵 → WS 事件);</li>
+  <li>然后读 <code>_strip_reasoning_chunk()</code>:手动模拟两个跨 chunk 边界,理解缓冲状态;</li>
+  <li>接着读 <code>GroupChatManager._resolve_targets()</code> 与 <code>stream_send()</code>:理解 @ 路由的产品语义;</li>
+  <li>最后读 <code>message_store.py</code>:三个函数闭环,理解持久化。</li>
+</ol>
+
+<div class="key">面试叙事:从「我把 AG2 的 on_messages_stream 接进了 WebSocket」讲到「我实现了思考剥离的状态机、@ 路由、双模式 Agent 生命周期」—— 这就是一个完整的"从框架原语到产品语义"的成长故事。</div>
+</section>
+
+</main>
+</body>
+</html>

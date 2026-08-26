@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="架构总览">
+<meta name="doc:category" content="架构">
+<meta name="doc:order" content="2">
+<meta name="doc:description" content="分层架构、模块地图、一次聊天的完整数据流、AG2 能力集成点、架构决策与业内评分">
+<meta name="doc:icon" content="layers">
+<title>02 · 架构总览</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:920px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+a{color:var(--primary);text-decoration:none}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)} .r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)} .r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#7c3aed,#a78bfa);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(124,58,237,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+/* 模块表徽章 */
+.badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11.5px;font-weight:600;margin-right:6px}
+.b-core{background:var(--primary-soft);color:var(--primary)}
+.b-cap{background:var(--sky-soft);color:var(--sky)}
+.b-adv{background:var(--green-soft);color:var(--green)}
+.b-infra{background:#f4f4f7;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#overview" class="doc-toc-h2">总体架构分层</a>
+  <a href="#backend-map" class="doc-toc-h2">后端模块地图</a>
+  <a href="#frontend-arch" class="doc-toc-h2">前端架构</a>
+  <a href="#dataflow" class="doc-toc-h2">核心数据流：一次聊天</a>
+  <a href="#ag2-integration" class="doc-toc-h2">AG2 集成点：用了它的什么能力</a>
+  <a href="#adr" class="doc-toc-h2">架构决策记录（ADR）</a>
+  <a href="#scorecard" class="doc-toc-h2">能力评分卡：与业内对比</a>
+  <a href="#evolution" class="doc-toc-h2">架构演进：OpenClaw → AG2</a>
+  <a href="#limits" class="doc-toc-h2">局限与下一步</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🧭</div>
+  <div>
+    <h1>架构总览</h1>
+    <div class="hero-meta">分层架构 · 模块地图 · 数据流 · AG2 集成点 · 评分卡 ｜ 建议先读 01 · 项目总览</div>
+  </div>
+</div>
+
+<section id="overview">
+<h2>总体架构分层</h2>
+<p>AiCumi 是一个<strong>前后端分离 + Agent 引擎内嵌</strong>的单体后端架构：不依赖独立 Agent 服务，而是把 AG2 编排器跑在 FastAPI 进程内，通过 REST / WebSocket 对外服务。五层结构如下：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="五层架构图">
+  <defs>
+    <linearGradient id="a1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="a2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="a3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="a4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="a5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1e1b4b" flood-opacity=".12"/></filter>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <!-- 前端层 -->
+    <rect x="20" y="16" width="820" height="86" rx="16" fill="url(#a1)" filter="url(#shadow)"/>
+    <text x="430" y="46" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">① 前端层 · React 19 + Vite + Tailwind v4（web 容器 / Nginx）</text>
+    <rect x="48" y="58" width="180" height="32" rx="9" fill="#ffffff" opacity=".18"/>
+    <text x="138" y="79" text-anchor="middle" fill="#fff" font-size="12">消息 / 成员 / 模型 / 渠道</text>
+    <rect x="244" y="58" width="180" height="32" rx="9" fill="#ffffff" opacity=".18"/>
+    <text x="334" y="79" text-anchor="middle" fill="#fff" font-size="12">工具 / 审批 / 追踪 / 工作流</text>
+    <rect x="440" y="58" width="180" height="32" rx="9" fill="#ffffff" opacity=".18"/>
+    <text x="530" y="79" text-anchor="middle" fill="#fff" font-size="12">云空间 / RAG 实验室 / 文档</text>
+    <rect x="636" y="58" width="180" height="32" rx="9" fill="#ffffff" opacity=".18"/>
+    <text x="726" y="79" text-anchor="middle" fill="#fff" font-size="12">分布式 / 模型配置中心</text>
+    <!-- API 层 -->
+    <rect x="20" y="118" width="820" height="74" rx="16" fill="url(#a2)" filter="url(#shadow)"/>
+    <text x="430" y="146" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">② API 层 · FastAPI（REST + WebSocket /ws 流式协议）</text>
+    <text x="430" y="170" text-anchor="middle" fill="#e0f2fe" font-size="12.5">app/api · app/cloud_space · app/knowledge · app/settings · app/docs ｜ 100+ 端点 · 审计日志</text>
+    <!-- 服务层 -->
+    <rect x="20" y="208" width="820" height="74" rx="16" fill="url(#a3)" filter="url(#shadow)"/>
+    <text x="430" y="236" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">③ 服务层 · 业务编排（services / chat / agents）</text>
+    <text x="430" y="260" text-anchor="middle" fill="#d1fae5" font-size="12.5">AgentManager · GroupChatManager · WebSocketManager · ModelManagementService · MessageStore</text>
+    <!-- 引擎层 -->
+    <rect x="20" y="298" width="820" height="86" rx="16" fill="url(#a4)" filter="url(#shadow)"/>
+    <text x="430" y="326" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">④ Agent 能力栈 · 引擎与扩展</text>
+    <rect x="48" y="340" width="142" height="32" rx="9" fill="#ffffff" opacity=".18"/><text x="119" y="361" text-anchor="middle" fill="#fff" font-size="12">AG2 编排</text>
+    <rect x="204" y="340" width="142" height="32" rx="9" fill="#ffffff" opacity=".18"/><text x="275" y="361" text-anchor="middle" fill="#fff" font-size="12">工具调用</text>
+    <rect x="360" y="340" width="142" height="32" rx="9" fill="#ffffff" opacity=".18"/><text x="431" y="361" text-anchor="middle" fill="#fff" font-size="12">记忆 / RAG</text>
+    <rect x="516" y="340" width="142" height="32" rx="9" fill="#ffffff" opacity=".18"/><text x="587" y="361" text-anchor="middle" fill="#fff" font-size="12">工作流 / HITL</text>
+    <rect x="672" y="340" width="142" height="32" rx="9" fill="#ffffff" opacity=".18"/><text x="743" y="361" text-anchor="middle" fill="#fff" font-size="12">分布式 Worker</text>
+    <!-- 存储层 -->
+    <rect x="20" y="400" width="820" height="56" rx="16" fill="url(#a5)" filter="url(#shadow)"/>
+    <text x="430" y="426" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">⑤ 存储层</text>
+    <text x="430" y="446" text-anchor="middle" fill="#f1f5f9" font-size="12.5">SQLite（消息/成员/模型/工作流/审计）· ChromaDB（向量记忆 + RAG 索引）· 文件系统（云空间）· Fernet 加密主密钥</text>
+  </g>
+</svg>
+<div class="fig-cap">五层架构：前端 → API → 服务 → 引擎能力栈 → 存储。AG2 编排器内嵌于 FastAPI 进程（非独立 Agent 服务）。</div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h4>为什么把 AG2 内嵌进程，而不是独立服务？</h4>
+    <ul style="margin:8px 0 0">
+      <li><strong>学习项目取舍</strong>：单体便于调试与演进，一次 `docker compose up` 即起</li>
+      <li>AG2 的 gRPC Worker Runtime 已提供"进程内 → 跨进程"的平滑扩展路径（见 09 · 分布式）</li>
+      <li>瓶颈可控：单用户个人项目，模型调用耗时远大于进程内编排开销</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>为什么消息走 WebSocket 而不是 SSE？</h4>
+    <ul style="margin:8px 0 0">
+      <li>双向能力：前端需要 `room.list / agent.list / group.create` 等控制面消息</li>
+      <li>一套连接承载流式推送 + 指令下发 + 未读角标，协议统一</li>
+      <li>实现参考 <code>frontend/src/hooks/useChatSocket.ts</code></li>
+    </ul>
+  </div>
+</div>
+</section>
+
+<section id="backend-map">
+<h2>后端模块地图</h2>
+<p>后端共 50 个 Python 文件，按职责划分为核心 / 能力 / 进阶 / 基础设施四组：</p>
+
+<table>
+  <thead><tr><th>模块</th><th>职责</th><th>关键代码</th><th>文档</th></tr></thead>
+  <tbody>
+    <tr><td><span class="badge b-core">核心</span>对话编排</td><td>Agent 管理、私聊/群聊、@路由、流式、思考剥离</td><td><code>app/agents/agent_manager.py</code></td><td><a href="#/api/docs/03-chat-orchestration">03</a></td></tr>
+    <tr><td><span class="badge b-core">核心</span>消息存储</td><td>消息落库 + 历史加载</td><td><code>app/services/message_store.py</code></td><td><a href="#/api/docs/03-chat-orchestration">03</a></td></tr>
+    <tr><td><span class="badge b-cap">能力</span>工具调用</td><td>ToolRegistry + 6 内置工具 + Agent 绑定</td><td><code>app/tools/registry.py · builtin.py</code></td><td><a href="#/api/docs/04-tool-calling">04</a></td></tr>
+    <tr><td><span class="badge b-cap">能力</span>记忆系统</td><td>ChromaDB 向量记忆 + 对话自动存取</td><td><code>app/memory/vector_memory.py</code></td><td><a href="#/api/docs/05-memory-system">05</a></td></tr>
+    <tr><td><span class="badge b-cap">能力</span>HITL 审批</td><td>审批流 + 工作流集成</td><td><code>app/approval/hitl.py</code></td><td><a href="#/api/docs/06-hitl">06</a></td></tr>
+    <tr><td><span class="badge b-cap">能力</span>可观测性</td><td>Trace 采集 + 性能统计</td><td><code>app/tracing/tracer.py</code></td><td><a href="#/api/docs/07-observability">07</a></td></tr>
+    <tr><td><span class="badge b-adv">进阶</span>工作流</td><td>DAG 引擎 + React Flow 编辑器 + SQLite</td><td><code>app/workflow/engine.py</code></td><td><a href="#/api/docs/08-workflow">08</a></td></tr>
+    <tr><td><span class="badge b-adv">进阶</span>分布式</td><td>gRPC Worker Runtime + 负载均衡 + 故障恢复</td><td><code>app/distributed/manager.py</code></td><td><a href="#/api/docs/09-distributed">09</a></td></tr>
+    <tr><td><span class="badge b-adv">进阶</span>云空间 + RAG</td><td>文件管理 / 解析分块 / Embedding / 检索</td><td><code>app/cloud_space/ · app/knowledge/</code></td><td><a href="#/api/docs/10-cloud-space-rag">10</a></td></tr>
+    <tr><td><span class="badge b-infra">底座</span>模型配置中心</td><td>5 类模型 + 能力参数 + 计费限量 + 加密</td><td><code>app/services/model_service.py</code></td><td><a href="#/api/docs/11-model-config">11</a></td></tr>
+    <tr><td><span class="badge b-infra">底座</span>管理 API</td><td>成员 / 技能 / 员工向导 / 渠道 / 文档</td><td><code>app/api/ · app/docs/</code></td><td><a href="#/api/docs/12-frontend-deploy">12</a></td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="frontend-arch">
+<h2>前端架构</h2>
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="前端组件架构">
+  <defs>
+    <linearGradient id="f1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+    <linearGradient id="f2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="f3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="320" y="20" width="220" height="52" rx="14" fill="url(#f1)"/>
+    <text x="430" y="51" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">App · Workspace（壳）</text>
+    <!-- hooks -->
+    <rect x="40" y="110" width="220" height="88" rx="14" fill="url(#f2)"/>
+    <text x="150" y="140" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">Hooks 层</text>
+    <text x="150" y="162" text-anchor="middle" fill="#e0f2fe" font-size="11.5">useChatSocket（WS 协议）</text>
+    <text x="150" y="180" text-anchor="middle" fill="#e0f2fe" font-size="11.5">useMemberMeta（成员元数据）</text>
+    <!-- 视图 -->
+    <rect x="300" y="110" width="260" height="88" rx="14" fill="url(#f3)"/>
+    <text x="430" y="140" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">业务视图（AppRail 导航）</text>
+    <text x="430" y="162" text-anchor="middle" fill="#d1fae5" font-size="11.5">消息 / 成员 / 模型 / 渠道 / 工具</text>
+    <text x="430" y="180" text-anchor="middle" fill="#d1fae5" font-size="11.5">审批 / 追踪 / 工作流 / 分布式</text>
+    <text x="430" y="198" text-anchor="middle" fill="#d1fae5" font-size="11.5">云空间 / RAG 实验室 / 文档中心</text>
+    <!-- 页面级 -->
+    <rect x="600" y="110" width="220" height="88" rx="14" fill="#475569"/>
+    <text x="710" y="140" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">复合页面</text>
+    <text x="710" y="162" text-anchor="middle" fill="#e2e8f0" font-size="11.5">WorkflowEditor（React Flow）</text>
+    <text x="710" y="180" text-anchor="middle" fill="#e2e8f0" font-size="11.5">DocDetailPage（Shadow DOM + TOC）</text>
+    <text x="710" y="198" text-anchor="middle" fill="#e2e8f0" font-size="11.5">CloudSpacePage / RAGLabPage</text>
+    <!-- 连接线 -->
+    <path d="M430 72 L430 100 M150 110 L150 100 L380 100 L430 100" stroke="#c7cbe8" stroke-width="2" fill="none" stroke-dasharray="4 4"/>
+    <path d="M430 198 L430 220" stroke="#c7cbe8" stroke-width="2" fill="none"/>
+    <text x="430" y="262" text-anchor="middle" fill="#8b8e96" font-size="12.5">REST /api/*  +  WS /ws 流式协议（chat.chunk / chat.done / chat.thinking / chat.memory）</text>
+  </g>
+</svg>
+<div class="fig-cap">前端分层：Workspace 壳 → Hooks（数据）→ 业务视图（导航切换）。文档详情用 Shadow DOM 隔离文档自身样式。</div>
+</div>
+</section>
+
+<section id="dataflow">
+<h2>核心数据流：一次聊天</h2>
+<p>以「私聊 + 流式输出」为例，完整链路（对应 <code>backend/app/main.py</code> 的 <code>/ws</code> 处理器）：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="聊天请求时序图">
+  <defs>
+    <linearGradient id="d1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="d2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="d3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="d4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <!-- 参与者 -->
+    <rect x="30" y="30" width="150" height="42" rx="12" fill="url(#d1)"/><text x="105" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">前端 Web UI</text>
+    <rect x="240" y="30" width="150" height="42" rx="12" fill="url(#d2)"/><text x="315" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">WS 管理器</text>
+    <rect x="450" y="30" width="150" height="42" rx="12" fill="url(#d3)"/><text x="525" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AgentManager</text>
+    <rect x="660" y="30" width="170" height="42" rx="12" fill="url(#d4)"/><text x="745" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AG2 Agent + 模型</text>
+    <!-- 泳道线 -->
+    <line x1="105" y1="72" x2="105" y2="320" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="315" y1="72" x2="315" y2="320" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="525" y1="72" x2="525" y2="320" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="745" y1="72" x2="745" y2="320" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <!-- 步骤 -->
+    <g font-size="12" fill="#44475f">
+      <path d="M105 92 C180 92 240 92 300 92" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+      <text x="200" y="86" text-anchor="middle" font-size="11.5">1. chat.send{roomId,content}</text>
+      <path d="M315 120 C390 120 450 120 510 120" stroke="#5e6ad2" stroke-width="2" fill="none"/>
+      <text x="412" y="114" text-anchor="middle" font-size="11.5">2. 检索长期记忆(VectorMemory)</text>
+      <path d="M525 148 C610 148 660 148 726 148" stroke="#f59e0b" stroke-width="2" fill="none"/>
+      <text x="625" y="142" text-anchor="middle" font-size="11.5">3. on_messages_stream(流式)</text>
+      <path d="M745 176 C700 176 600 176 540 176" stroke="#10b981" stroke-width="2" fill="none" stroke-dasharray="1 0"/>
+      <text x="645" y="170" text-anchor="middle" font-size="11.5">4. 逐 token chunk(剥离思考)</text>
+      <path d="M525 204 C450 204 390 204 330 204" stroke="#10b981" stroke-width="2" fill="none"/>
+      <text x="430" y="198" text-anchor="middle" font-size="11.5">5. 转发 chat.chunk 到浏览器</text>
+      <path d="M315 232 C240 232 180 232 120 232" stroke="#10b981" stroke-width="2" fill="none"/>
+      <text x="218" y="226" text-anchor="middle" font-size="11.5">6. 逐字渲染(打字机效果)</text>
+      <path d="M105 260 C180 260 240 260 300 260" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="200" y="254" text-anchor="middle" font-size="11.5">7. chat.done{fullContent}</text>
+      <path d="M315 288 C390 288 450 288 510 288" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="412" y="282" text-anchor="middle" font-size="11.5">8. 落库 + save_exchange 存记忆</text>
+    </g>
+  </g>
+</svg>
+<div class="fig-cap">私聊流式时序：记忆检索 → 模型流式 → 思考剥离 → 逐字推送 → 持久化 + 记忆回写。</div>
+</div>
+
+<ol>
+  <li><strong>前端发送</strong>：`chat.send`（WS）携带房间与内容，可选 <code>knowledge_scope</code> 触发 RAG 注入。</li>
+  <li><strong>记忆检索</strong>：<code>build_memory_context()</code> 用向量检索相关长期记忆，注入 system 上下文（`chat.memory` 事件展示给前端）。</li>
+  <li><strong>模型流式</strong>：AG2 <code>AssistantAgent.on_messages_stream()</code> 逐 token 产出。</li>
+  <li><strong>思考剥离</strong>：剔除 <code>&lt;think&gt;</code> 标签 / AG2 reasoning 前缀，只推最终回答（`chat.thinking` 指示器）。</li>
+  <li><strong>流式推送</strong>：<code>chat.chunk</code> 逐字转发，前端打字机渲染。</li>
+  <li><strong>收尾</strong>：<code>chat.done</code> 携带完整内容；消息落库（SQLite）+ 对话写入长期记忆。</li>
+</ol>
+</section>
+
+<section id="ag2-integration">
+<h2>AG2 集成点：用了它的什么能力</h2>
+<p>这是本项目架构的核心 —— 我们<strong>没有重造编排器</strong>，而是站在 AG2 之上做产品层。用到的能力与落点：</p>
+
+<table>
+  <thead><tr><th>AG2 能力</th><th>我们的用法</th><th>代码落点</th><th>改造/增强</th></tr></thead>
+  <tbody>
+    <tr><td><code>AssistantAgent</code></td><td>每个员工 = 一个真实 AG2 Agent（persona 作为 system_message）</td><td><code>agent_manager._build_agent_instance()</code></td><td>mock 兜底：无模型时降级为模拟回复</td></tr>
+    <tr><td><code>model_client_stream</code></td><td>逐 token 流式输出</td><td><code>_real_stream()</code></td><td>思考剥离 + `chat.thinking` 事件</td></tr>
+    <tr><td><code>FunctionTool</code></td><td>内置工具注册为 AG2 工具并绑定到 Agent</td><td><code>tools/registry.get_ag2_tools()</code></td><td>ToolRegistry 统一管理 + 前端绑定 UI</td></tr>
+    <tr><td><code>OpenAIChatCompletionClient</code></td><td>统一接入任意 OpenAI 兼容端点（MiMo/DeepSeek/自建）</td><td><code>build_model_client()</code></td><td>Anthropic 原生客户端 + model_info 兜底</td></tr>
+    <tr><td><code>GrpcWorkerAgentRuntime</code></td><td>分布式 Worker 拓扑 + 故障恢复</td><td><code>distributed/manager.py</code></td><td>负载均衡策略 + 故障模拟 API</td></tr>
+    <tr><td>多模型客户端</td><td>per-agent 模型绑定覆盖默认模型</td><td><code>agent_model_clients</code></td><td>成员级模型切换持久化</td></tr>
+  </tbody>
+</table>
+
+<div class="key">学习要点：<strong>框架提供"执行原语"，产品提供"编排语义"</strong>。AG2 管"Agent 怎么跑"，AiCumi 管"谁跟谁聊、聊完怎么存、怎么审、怎么可视化"。</div>
+</section>
+
+<section id="adr">
+<h2>架构决策记录（ADR）</h2>
+<table>
+  <thead><tr><th>决策</th><th>选择</th><th>理由</th><th>代价</th></tr></thead>
+  <tbody>
+    <tr><td>Agent 引擎</td><td>AG2</td><td>对话/群聊式多 Agent 协作标杆，面试竞争力强，Python 生态</td><td>框架较重，文档生态不及 LangChain</td></tr>
+    <tr><td>后端语言</td><td>Python + FastAPI</td><td>与 AG2 同栈，异步原生，类型安全</td><td>从 Node 全量重写（已发生）</td></tr>
+    <tr><td>数据库</td><td>SQLite</td><td>零依赖、单文件、个人项目足够；工作流/消息量小</td><td>并发写受限，多租户需换 PG</td></tr>
+    <tr><td>向量库</td><td>ChromaDB（嵌入式）</td><td>零额外容器，快速迭代；RAG 实验室调参友好</td><td>规模与 Milvus 有差距</td></tr>
+    <tr><td>Embedding</td><td>千问 DashScope</td><td>国内可达、价格低、中文效果好</td><td>与 OpenAI 格式不同需适配层</td></tr>
+    <tr><td>API 密钥</td><td>Fernet 对称加密 + 主密钥</td><td>明文不落盘，密钥持久化于 data 目录</td><td>主密钥丢失则无法解密</td></tr>
+    <tr><td>部署</td><td>Docker Compose 双容器</td><td>一条命令拉起，OrbStack 本地开发友好</td><td>无 K8s/水平扩展</td></tr>
+    <tr><td>文档渲染</td><td>静态 HTML + Shadow DOM</td><td>文档自带样式隔离，TOC 手写 + 前端高亮</td><td>手写 HTML 维护成本高于 MD</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="scorecard">
+<h2>能力评分卡：与业内对比</h2>
+<p>评分原则：<strong>功能完整性 × 实现深度 × 工程化 × 生产就绪度</strong>，1-5 星。星标代表"在个人学习项目这一目标下的达成度"，并与业内参照对比。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="能力雷达图">
+  <defs>
+    <linearGradient id="radar" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2" stop-opacity=".45"/><stop offset="1" stop-color="#8b93e8" stop-opacity=".45"/></linearGradient>
+  </defs>
+  <g transform="translate(300,205)" font-family="PingFang SC, sans-serif">
+    <!-- 网格 -->
+    <g fill="none" stroke="#e4e4ea" stroke-width="1">
+      <polygon points="0,-150 142,-46 88,121 -88,121 -142,-46"/>
+      <polygon points="0,-112 107,-35 66,91 -66,91 -107,-35"/>
+      <polygon points="0,-75 71,-23 44,61 -44,61 -71,-23"/>
+      <polygon points="0,-37 36,-12 22,30 -22,30 -36,-12"/>
+    </g>
+    <g stroke="#c7cbe8" stroke-width="1">
+      <line x1="0" y1="0" x2="0" y2="-150"/><line x1="0" y1="0" x2="142" y2="-46"/>
+      <line x1="0" y1="0" x2="88" y2="121"/><line x1="0" y1="0" x2="-88" y2="121"/><line x1="0" y1="0" x2="-142" y2="-46"/>
+    </g>
+    <!-- 本项目 -->
+    <polygon points="0,-128 128,-42 66,91 -57,109 -128,-37" fill="url(#radar)" stroke="#5e6ad2" stroke-width="2.5" stroke-linejoin="round"/>
+    <g fill="#5e6ad2">
+      <circle cx="0" cy="-128" r="5"/><circle cx="128" cy="-42" r="5"/>
+      <circle cx="66" cy="91" r="5"/><circle cx="-57" cy="109" r="5"/><circle cx="-128" cy="-37" r="5"/>
+    </g>
+    <!-- 标签 -->
+    <g font-size="13" font-weight="600" text-anchor="middle">
+      <text x="0" y="-168" fill="#3730a3">对话编排 4.3</text>
+      <text x="172" y="-40" fill="#3730a3">工具调用 4.0</text>
+      <text x="118" y="152" fill="#3730a3">工程化 3.2</text>
+      <text x="-118" y="152" fill="#3730a3">RAG 3.6</text>
+      <text x="-172" y="-40" fill="#3730a3">深度能力 3.4</text>
+    </g>
+  </g>
+  <g transform="translate(600,60)" font-family="PingFang SC, sans-serif" font-size="12.5">
+    <rect x="0" y="0" width="14" height="14" rx="4" fill="#5e6ad2"/><text x="22" y="12" fill="#44475f">AiCumi（本项目）</text>
+    <rect x="0" y="26" width="14" height="14" rx="4" fill="#c7cbe8"/><text x="22" y="38" fill="#8b8e96">业内标杆（参照）</text>
+  </g>
+</svg>
+<div class="fig-cap">五项能力雷达：对话编排与工具调用接近标杆，工程化与深度能力是学习级。</div>
+</div>
+
+<table>
+  <thead><tr><th style="width:17%">维度</th><th>做了什么 / 用到的能力</th><th>业内参照</th><th style="width:15%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>多 Agent 对话编排</strong></td>
+      <td>AG2 AssistantAgent + 自研 GroupChatManager：@提及路由、群主值班、多 Agent 并发回复、流式 + 思考剥离</td>
+      <td>AutoGen / CrewAI 原生 GroupChat</td>
+      <td><span class="rating r-5">4.3 ★</span></td>
+      <td>比 AG2 原生更贴近 IM 体验（群主值班、@ 过滤）；缺会话级上下文窗口管理与成本控制</td>
+    </tr>
+    <tr>
+      <td><strong>工具调用</strong></td>
+      <td>ToolRegistry + AG2 FunctionTool + 6 内置工具 + per-agent 绑定 + 前端工具箱 UI + 执行追踪</td>
+      <td>LangChain Tools / AG2 FunctionTool</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>功能与生态工具等价；缺工具调用链（tool → tool）、沙箱隔离（code_execute 用 subprocess 而非容器）</td>
+    </tr>
+    <tr>
+      <td><strong>记忆系统</strong></td>
+      <td>ChromaDB 向量记忆、对话自动存取（save_exchange）、跨会话语义检索、`chat.memory` 可视化</td>
+      <td>LangGraph Checkpointer / MemGPT</td>
+      <td><span class="rating r-4">3.6 ★</span></td>
+      <td>检索-写入闭环完整；缺记忆压缩/遗忘策略、多轮记忆融合（只做 top-k 注入）</td>
+    </tr>
+    <tr>
+      <td><strong>Human-in-the-loop</strong></td>
+      <td>审批系统（请求/等待/解决）+ 工作流 human_review 节点 + 前端审批面板</td>
+      <td>LangGraph interrupt / 生产审批流</td>
+      <td><span class="rating r-3">3.4 ★</span></td>
+      <td>机制完整；缺审批超时分级、多级审批链、审批理由回写模型上下文</td>
+    </tr>
+    <tr>
+      <td><strong>可观测性</strong></td>
+      <td>TracingSystem（agent/tool/model/memory/error 事件）+ 耗时统计 + 前端追踪面板</td>
+      <td>LangSmith / Langfuse</td>
+      <td><span class="rating r-3">3.2 ★</span></td>
+      <td>学习级等价；缺采样、分布式追踪传播、成本归因、在线评测</td>
+    </tr>
+    <tr>
+      <td><strong>工作流编排</strong></td>
+      <td>DAG 建模 + React Flow 可视化编辑器 + 真实执行（Agent/工具/条件/审批/转换节点）+ SQLite 持久化</td>
+      <td>n8n / Dify / Flowise</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>学习级 n8n；缺并行分支可视化、失败重试策略、工作流版本控制</td>
+    </tr>
+    <tr>
+      <td><strong>分布式 Agent</strong></td>
+      <td>AG2 gRPC Worker Runtime + 双 Worker + 轮询/随机/最少连接 + 故障恢复 + 故障模拟 API</td>
+      <td>AG2 生产部署 / Ray</td>
+      <td><span class="rating r-3">3.3 ★</span></td>
+      <td>拓扑与故障转移真实；执行仍走进程内代理（executor 模式），非真正的跨机 Agent</td>
+    </tr>
+    <tr>
+      <td><strong>RAG 知识问答</strong></td>
+      <td>云空间文件管理 → 多格式解析 → 3 种分块 → 千问 Embedding → ChromaDB → 向量/关键词/Hybrid(RRF) → Agent 注入 + 引用溯源 + RAG 实验室</td>
+      <td>LlamaIndex / LangChain RAG</td>
+      <td><span class="rating r-4">3.6 ★</span></td>
+      <td>链路完整、可调参；缺 Rerank、混合检索自动评估、文档增量更新管线、引用可信度分级</td>
+    </tr>
+    <tr>
+      <td><strong>统一配置中心</strong></td>
+      <td>5 类模型 + 能力参数 + 计费限量 + Fernet 加密 + 测试连接（LLM/Embedding 双路径）</td>
+      <td>LiteLLM Proxy / One API</td>
+      <td><span class="rating r-4">3.6 ★</span></td>
+      <td>单机可用；缺限流实际执行（仅配置展示）、用量计费统计、模型自动路由</td>
+    </tr>
+    <tr>
+      <td><strong>工程化与部署</strong></td>
+      <td>Docker 双容器、SQLite 持久化、审计日志、42+11 测试、WS 协议文档化</td>
+      <td>生产 SaaS 标准</td>
+      <td><span class="rating r-3">3.2 ★</span></td>
+      <td>缺 CI/CD、多租户隔离、监控告警、备份策略（有数据无备份）</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>总体评分：3.6 / 5.0</strong> —— 在"个人学习作品 + 面试项目"的目标下属于优秀（功能面全、链路真实可讲）；相对"生产级产品"属于中等偏上（工程化与深度是主要差距）。这是刻意取舍：功能全面 > 产品化。</div>
+</section>
+
+<section id="evolution">
+<h2>架构演进：OpenClaw → AG2</h2>
+<div class="fig">
+<svg viewBox="0 0 860 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="架构演进">
+  <defs>
+    <linearGradient id="e1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient>
+    <linearGradient id="e2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="30" width="360" height="96" rx="16" fill="url(#e1)"/>
+    <text x="200" y="60" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">过去 · OpenClaw 壳层产品</text>
+    <text x="200" y="84" text-anchor="middle" fill="#f8fafc" font-size="11.5">Node 壳 + OpenClaw Gateway（ChannelPlugin 通道）</text>
+    <text x="200" y="104" text-anchor="middle" fill="#f8fafc" font-size="11.5">引擎黑盒 · 学习价值低 · 面试竞争力弱</text>
+    <path d="M400 78 C440 78 440 78 480 78" stroke="#5e6ad2" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+    <rect x="500" y="30" width="340" height="96" rx="16" fill="url(#e2)"/>
+    <text x="670" y="60" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">现在 · AG2 学习作品</text>
+    <text x="670" y="84" text-anchor="middle" fill="#eef0fb" font-size="11.5">Python FastAPI + AG2 内嵌编排 + 自研能力栈</text>
+    <text x="670" y="104" text-anchor="middle" fill="#eef0fb" font-size="11.5">透明可控 · 面试可讲 · 覆盖业界主流范式</text>
+  </g>
+</svg>
+<div class="fig-cap">2026-08-20 决策：从「壳层产品思路」转向「自研学习作品」，弃用 OpenClaw、全量迁移 AG2。</div>
+</div>
+</section>
+
+<section id="limits">
+<h2>局限与下一步</h2>
+<table>
+  <thead><tr><th>局限</th><th>影响</th><th>演进方向</th></tr></thead>
+  <tbody>
+    <tr><td>单体进程内编排</td><td>不可水平扩展</td><td>利用已实现的 gRPC Worker Runtime 拆出 Agent 服务</td></tr>
+    <tr><td>SQLite 单文件</td><td>并发写受限</td><td>迁移 PostgreSQL（消息/工作流量大时）</td></tr>
+    <tr><td>无多租户隔离</td><td>数据天然共享</td><td>每租户容器实例（原产品阶段 3 方案）</td></tr>
+    <tr><td>无 Rerank / 评估</td><td>RAG 精度上限受限</td><td>Cohere/Jina Rerank + 检索评测集</td></tr>
+    <tr><td>无外部 IM 真实接入</td><td>渠道配置是"模板"</td><td>飞书/Telegram 网关对接（产品完善方向）</td></tr>
+  </tbody>
+</table>
+</section>
+
+</main>
+</body>
+</html>

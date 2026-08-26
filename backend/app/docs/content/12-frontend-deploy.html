@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="前端架构与部署">
+<meta name="doc:category" content="工程与部署">
+<meta name="doc:order" content="12">
+<meta name="doc:description" content="React 19 + Vite + Tailwind v4 三段式布局、WS 协议与 useChatSocket、AppRail 导航、文档中心 Shadow DOM、Nginx 双容器部署拓扑">
+<meta name="doc:icon" content="monitor-smartphone">
+<title>12 · 前端架构与部署</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#overview" class="doc-toc-h2">前端总体架构：三段式布局</a>
+  <a href="#ws" class="doc-toc-h2">WS 协议设计与 useChatSocket</a>
+  <a href="#pages" class="doc-toc-h2">页面结构：AppRail 导航与视图切换</a>
+  <a href="#docs-center" class="doc-toc-h2">文档中心：Shadow DOM + TOC</a>
+  <a href="#topology" class="doc-toc-h2">部署拓扑：双容器</a>
+  <a href="#nginx" class="doc-toc-h2">Nginx 反代细节</a>
+  <a href="#scorecard" class="doc-toc-h2">与业内对比评分</a>
+  <a href="#code-guide" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🖥️</div>
+  <div>
+    <h1>前端架构与部署</h1>
+    <div class="hero-meta">工程与部署 · React 19 + Vite 6 + Tailwind v4 · WS 流式协议 · 文档中心 · Nginx 双容器 ｜ 建议先读 <a href="#/api/docs/02-architecture-overview">02 · 架构总览</a></div>
+  </div>
+</div>
+
+<section id="overview">
+<h2>前端总体架构：三段式布局</h2>
+<p>前端是一个 <strong>React 19 + Vite 6 + Tailwind CSS v4</strong> 的单页应用（依赖 <code>react-router-dom</code>、<code>lucide-react</code> 图标、<code>@xyflow/react</code> 工作流画布等）。整体采用<strong>飞书风格的三段式布局</strong>：左侧功能导航栏（AppRail）→ 中间列表区 → 右侧主内容区。</p>
+
+<div class="card">
+  <h4>布局与交互范式</h4>
+  <ul style="margin:8px 0 0">
+    <li><strong>导航范式而非弹窗</strong>：点击左侧功能项 → 右侧主区域<strong>切换视图</strong>（不是弹层），保持"一个工作台"的心智模型。</li>
+    <li><strong>持续对话</strong>：点团队成员 = 进入与 TA 的持续 IM 对话（没有"新建对话"这种机器范式），与后端 room 模型一一对应。</li>
+    <li><strong>分层清晰</strong>：Workspace 壳（布局与状态）→ Hooks（数据接入）→ 业务视图组件（功能页）。</li>
+  </ul>
+</div>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三段式布局与组件结构">
+  <defs>
+    <linearGradient id="fa1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="fa2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="fa3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="fa4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="330" y="18" width="200" height="46" rx="12" fill="url(#fa1)"/>
+    <text x="430" y="46" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">App · Workspace 壳</text>
+    <rect x="20" y="96" width="130" height="150" rx="14" fill="url(#fa2)"/>
+    <text x="85" y="122" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">AppRail</text>
+    <text x="85" y="142" text-anchor="middle" fill="#e0f2fe" font-size="10.5">功能导航栏</text>
+    <text x="85" y="160" text-anchor="middle" fill="#e0f2fe" font-size="10.5">64px 竖排图标</text>
+    <text x="85" y="178" text-anchor="middle" fill="#e0f2fe" font-size="10.5">12 启用 + 3 规划</text>
+    <text x="85" y="196" text-anchor="middle" fill="#e0f2fe" font-size="10.5">active 高亮</text>
+    <rect x="168" y="96" width="180" height="150" rx="14" fill="url(#fa3)"/>
+    <text x="258" y="122" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">Sidebar / 列表区</text>
+    <text x="258" y="142" text-anchor="middle" fill="#d1fae5" font-size="10.5">我的团队（私聊）</text>
+    <text x="258" y="160" text-anchor="middle" fill="#d1fae5" font-size="10.5">群聊列表</text>
+    <text x="258" y="178" text-anchor="middle" fill="#d1fae5" font-size="10.5">未读角标 / 预览</text>
+    <text x="258" y="196" text-anchor="middle" fill="#d1fae5" font-size="10.5">移动端抽屉</text>
+    <rect x="366" y="96" width="474" height="150" rx="14" fill="url(#fa4)"/>
+    <text x="603" y="122" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">主内容区（按 activeNav 切换）</text>
+    <rect x="382" y="134" width="140" height="26" rx="7" fill="#ffffff" opacity=".18"/>
+    <text x="452" y="152" text-anchor="middle" fill="#fff" font-size="10.5">ChatHeader</text>
+    <rect x="532" y="134" width="140" height="26" rx="7" fill="#ffffff" opacity=".18"/>
+    <text x="602" y="152" text-anchor="middle" fill="#fff" font-size="10.5">MessageList（流式）</text>
+    <rect x="682" y="134" width="140" height="26" rx="7" fill="#ffffff" opacity=".18"/>
+    <text x="752" y="152" text-anchor="middle" fill="#fff" font-size="10.5">Composer</text>
+    <rect x="382" y="170" width="440" height="26" rx="7" fill="#ffffff" opacity=".16"/>
+    <text x="602" y="188" text-anchor="middle" fill="#fff" font-size="10.5">业务视图：云空间 / RAG 实验室 / 文档中心 / 模型 / 工作流 / 分布式…</text>
+    <rect x="382" y="206" width="440" height="26" rx="7" fill="#ffffff" opacity=".16"/>
+    <text x="602" y="224" text-anchor="middle" fill="#fff" font-size="10.5">文档详情：DocDetailPage（Shadow DOM 隔离渲染）</text>
+    <path d="M430 64 L430 88" stroke="#c7cbe8" stroke-width="2" fill="none" stroke-dasharray="4 4"/>
+    <text x="430" y="276" text-anchor="middle" fill="#8b8e96" font-size="12">数据接入：useChatSocket（WS 协议）+ useMemberMeta（成员元数据）+ REST /api/*</text>
+  </g>
+</svg>
+<div class="fig-cap">三段式布局：AppRail（功能导航）| Sidebar（列表）| 主内容区（视图切换）。数据层由 Hooks 统一接入。</div>
+</div>
+</section>
+
+<section id="ws">
+<h2>WS 协议设计与 useChatSocket</h2>
+<p>前后端实时通道是 <code>/ws</code> WebSocket，协议是<strong>JSON 事件消息</strong>（<code>type</code> 字段路由）。前端把整条连接封装成一个 Hook <code>frontend/src/hooks/useChatSocket.ts</code>，对外暴露 <code>connected / rooms / agents / messages / unread / thinking / memories</code> 与发送方法。</p>
+
+<h3>事件类型表</h3>
+<table>
+  <thead><tr><th>方向</th><th>事件</th><th>载荷要点</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="5">客户端 → 服务端</td><td><code>chat.send</code></td><td>roomId / content / mentions / knowledgeScope</td><td>发消息（可携带 RAG 范围，见 10 篇）</td></tr>
+    <tr><td><code>chat.history</code></td><td>roomId</td><td>拉取云端历史（limit 200）</td></tr>
+    <tr><td><code>group.create</code></td><td>name / memberAgentIds / ownerAgentId</td><td>创建群聊 → 服务端回 <code>room.created</code></td></tr>
+    <tr><td><code>group.add-member</code></td><td>roomId / agentId</td><td>拉人进群 → 重发 <code>room.list</code></td></tr>
+    <tr><td><code>ping / room.list / agent.list / room.create</code></td><td>—</td><td>心跳 / 刷新列表 / 建立私聊房间</td></tr>
+    <tr><td rowspan="6">服务端 → 客户端</td><td><code>agent.list</code> · <code>room.list</code></td><td>agents[] / rooms[]</td><td>连接建立与刷新时的全量快照</td></tr>
+    <tr><td><code>chat.thinking</code></td><td>roomId / messageId / agentId</td><td>模型思考中（前端显示"正在思考…"）</td></tr>
+    <tr><td><code>chat.chunk</code></td><td>roomId / messageId / content / agentId</td><td>流式逐块内容（打字机渲染）</td></tr>
+    <tr><td><code>chat.memory</code></td><td>roomId / messageId / memories[]</td><td>该条回复关联的长期记忆（可视化）</td></tr>
+    <tr><td><code>chat.done</code></td><td>roomId / messageId / fullContent</td><td>流结束，完整内容落定（群聊无此事件）</td></tr>
+    <tr><td><code>chat.error</code></td><td>roomId / error</td><td>错误提示（同时清除 thinking）</td></tr>
+  </tbody>
+</table>
+
+<h3>Hook 的三个关键设计</h3>
+<ul>
+  <li><strong>handlerRef 模式</strong>：消息处理器放在 <code>useRef</code> 里，每次渲染更新 <code>handlerRef.current</code> —— 避免 useEffect 依赖链问题，连接只建一次（<code>useEffect(..., [])</code>）。</li>
+  <li><strong>流式累积</strong>：<code>streamingRef: Map&lt;"roomId:messageId", string&gt;</code> 累积 chunk，<code>chat.chunk</code> 时把最新内容 merge 进对应消息；<code>chat.done</code> 时用 fullContent 替换并置 <code>streaming: false</code>。</li>
+  <li><strong>未读角标</strong>：<code>unread[roomId]</code> 只在<strong>非活跃房间</strong>收到新 assistant 消息时 +1（<code>activeRoomRef.current !== msg.roomId</code>）；切换房间时 <code>setActiveRoom()</code> 清空。历史加载用 <code>hist-</code> 前缀 id 与流式消息合并，避免覆盖正在滚动的内容。</li>
+</ul>
+
+<pre><code>// chat.chunk 处理片段（useChatSocket.ts）
+const key = `${msg.roomId}:${msg.messageId}`;
+const isNew = !streamingRef.current.has(key);
+const existing = streamingRef.current.get(key) || '';
+streamingRef.current.set(key, existing + msg.content);
+// 新 assistant 消息到达且不在当前房间 → 未读 +1
+if (isNew &amp;&amp; activeRoomRef.current !== msg.roomId) {
+  setUnread((u) =&gt; ({ ...u, [msg.roomId]: (u[msg.roomId] || 0) + 1 }));
+}</code></pre>
+
+<div class="tip">连接细节：URL 用 <code>${protocol}//${window.location.host}/ws</code>（生产走 Nginx 反代，同源）；断线后 3 秒自动重连；<code>crypto.randomUUID</code> 在 http 域名不可用，用 <code>getRandomValues</code> 手写 UUID v4 兜底 —— 都是真实踩过的坑。</div>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="WS 流式时序图">
+  <defs>
+    <linearGradient id="fb1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="fb2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="fb3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="fbr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="24" y="26" width="150" height="44" rx="12" fill="url(#fb1)"/>
+    <text x="99" y="53" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="600">前端 Composer</text>
+    <rect x="240" y="26" width="150" height="44" rx="12" fill="url(#fb2)"/>
+    <text x="315" y="53" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="600">useChatSocket</text>
+    <rect x="456" y="26" width="150" height="44" rx="12" fill="url(#fb3)"/>
+    <text x="531" y="53" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="600">/ws 处理器</text>
+    <rect x="672" y="26" width="164" height="44" rx="12" fill="#475569"/>
+    <text x="754" y="53" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="600">AG2 Agent</text>
+    <line x1="99" y1="70" x2="99" y2="266" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="315" y1="70" x2="315" y2="266" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="531" y1="70" x2="531" y2="266" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="754" y1="70" x2="754" y2="266" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <g font-size="11.5" fill="#44475f">
+      <path d="M99 86 C180 86 240 86 300 86" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#fbr)"/>
+      <text x="200" y="80" text-anchor="middle">1. chat.send{roomId,content}</text>
+      <path d="M531 106 C620 106 680 106 736 106" stroke="#5e6ad2" stroke-width="2" fill="none"/>
+      <text x="633" y="100" text-anchor="middle">2. 注入 RAG/记忆 → 流式</text>
+      <path d="M754 126 C700 126 620 126 546 126" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="650" y="120" text-anchor="middle">3. chat.thinking</text>
+      <path d="M531 148 C460 148 390 148 330 148" stroke="#10b981" stroke-width="2" fill="none"/>
+      <text x="430" y="142" text-anchor="middle">4. chat.chunk × N（逐块）</text>
+      <path d="M315 168 C240 168 180 168 114 168" stroke="#10b981" stroke-width="2" fill="none"/>
+      <text x="215" y="162" text-anchor="middle">5. 打字机渲染 + 未读判定</text>
+      <path d="M531 188 C460 188 390 188 330 188" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="430" y="182" text-anchor="middle">6. chat.memory（记忆可视化）</text>
+      <path d="M531 208 C460 208 390 208 330 208" stroke="#5e6ad2" stroke-width="2" fill="none"/>
+      <text x="430" y="202" text-anchor="middle">7. chat.done{fullContent}</text>
+      <path d="M315 228 C240 228 180 228 114 228" stroke="#5e6ad2" stroke-width="2" fill="none"/>
+      <text x="215" y="222" text-anchor="middle">8. 落定消息 + streaming=false</text>
+      <path d="M99 248 C180 248 240 248 300 248" stroke="#f59e0b" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="200" y="242" text-anchor="middle">9. 用户继续输入（循环）</text>
+    </g>
+  </g>
+</svg>
+<div class="fig-cap">WS 流式时序：chat.send → thinking → chunk×N → memory → done；前端一边打字机渲染一边统计未读。</div>
+</div>
+</section>
+
+<section id="pages">
+<h2>页面结构：AppRail 导航与视图切换</h2>
+<h3>AppRail：12 个启用项 + 3 个规划位</h3>
+<p><code>frontend/src/components/workspace/AppRail.tsx</code> 是 64px 宽的竖排功能栏：Logo 在顶，中间 <code>RAIL_ITEMS</code>（12 个启用项），底部 <code>PLANNED_ITEMS</code>（3 个灰显"规划中"扩展位）：</p>
+<table>
+  <thead><tr><th>分组</th><th>条目（id · 图标 · 视图）</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="12">启用项</td>
+      <td><code>chat</code> 消息 MessageSquare → 聊天视图（Sidebar + ChatCanvas）</td></tr>
+    <tr><td><code>members</code> 成员管理 Users → MemberManagement</td></tr>
+    <tr><td><code>cloud-space</code> 云空间 FileText → CloudSpacePage</td></tr>
+    <tr><td><code>knowledge</code> RAG 实验室 BookOpen → RAGLabPage</td></tr>
+    <tr><td><code>docs</code> 文档 BookMarked → DocsCenterPage / DocDetailPage</td></tr>
+    <tr><td><code>channels</code> 渠道 Radio → ChannelWizard</td></tr>
+    <tr><td><code>models</code> 模型 Cpu → ModelManagement</td></tr>
+    <tr><td><code>tools</code> 工具箱 Wrench → ToolPanel</td></tr>
+    <tr><td><code>approval</code> 审批 Shield → ApprovalPanel</td></tr>
+    <tr><td><code>tracing</code> 追踪 Activity → TracingPanel</td></tr>
+    <tr><td><code>workflows</code> 工作流 GitBranch → WorkflowPanel</td></tr>
+    <tr><td><code>distributed</code> 分布式 Boxes → DistributedPanel</td></tr>
+    <tr><td rowspan="3">规划位（灰显）</td><td><code>calendar</code> 日历 · <code>tasks</code> 任务 · <code>settings</code> 设置 —— 点击提示"规划中，敬请期待"</td></tr>
+  </tbody>
+</table>
+
+<h3>Workspace：视图切换（导航范式）</h3>
+<p><code>Workspace.tsx</code> 用 <code>activeNav</code> state 决定主区渲染哪个组件；<code>docView</code> 是文档中心的二级状态（列表 ↔ 详情）。切换板块时重置 <code>docView</code>，保证"切走再回来"从列表开始。聊天视图还内嵌了 <code>CreateGroupModal</code>（创建群聊弹窗，勾选成员）与轻提示 <code>toast</code>（规划位点击用）。</p>
+<pre><code>// Workspace.tsx 的核心分发
+{activeNav === 'cloud-space' ? (&lt;CloudSpacePage /&gt;)
+ : activeNav === 'knowledge' ? (&lt;RAGLabPage /&gt;)
+ : activeNav === 'docs' ? (docView ? &lt;DocDetailPage /&gt; : &lt;DocsCenterPage /&gt;)
+ : activeNav === 'members' ? (&lt;MemberManagement /&gt;)
+ : /* ... 其他板块 ... */
+ : (&lt;Sidebar /&gt; + &lt;ChatCanvas /&gt;)}   {/* 默认聊天视图 */}</code></pre>
+
+<div class="tip">设计意图：把"未来能力"直接设计成导航位（日历/任务/设置），新功能接入时只需加一个 RailItem + 一个视图分支 —— 架构上为扩展留好了槽位，这也是产品思维（飞书/微信式左侧功能列）的体现。</div>
+</section>
+
+<section id="docs-center">
+<h2>文档中心：Shadow DOM + TOC</h2>
+<p>文档中心是本项目"面向学习"理念的落地：12 篇学习文档以<strong>独立 HTML 文件</strong>存在后端 <code>backend/app/docs/content/</code>，前端负责展示。</p>
+
+<h3>DocsCenterPage：分类卡片</h3>
+<p><code>DocsCenterPage.tsx</code> 请求 <code>GET /api/docs/categories</code>（后端扫描 content 目录、解析 <code>doc:*</code> meta 并按 category 分组），把每篇文档渲染成卡片：图标来自 <code>meta.icon</code> 字符串 → lucide 组件映射（<code>ICON_MAP</code>），分类配色来自 <code>CATEGORY_STYLE</code>（入门靛蓝 / 架构紫 / 核心能力翠绿 / 进阶琥珀 / 工程与部署玫红），卡片 hover 上浮 + 显示"阅读文档"。</p>
+
+<h3>DocDetailPage：Shadow DOM 隔离渲染</h3>
+<p>为什么用 Shadow DOM？<strong>文档自带完整样式</strong>（<code>&lt;style&gt;</code> 主题 + 组件类），直接注入页面会污染 App 的 Tailwind 样式。方案：</p>
+<ol>
+  <li><code>fetch /api/docs/{docId}</code> 拿到 <code>doc.html</code> 原文。</li>
+  <li>用正则把 <code>&lt;style&gt;...&lt;/style&gt;</code> 与 <code>&lt;body&gt;</code> 内容分别抠出来，拼成 <code>&lt;style&gt;{styles}&lt;/style&gt;{body}</code> 注入 <code>host.attachShadow({mode:'open'})</code> —— 文档样式只作用于文档自身，与 App 完全隔离。</li>
+  <li>React StrictMode 下组件可能二次执行，因此先 <code>host.innerHTML=''</code> 并 <code>shadowRoot.replaceChildren()</code> 清空旧内容再挂载。</li>
+</ol>
+
+<h3>手写 TOC 提取 + 滚动高亮 + 平滑跳转</h3>
+<ul>
+  <li><strong>TOC 提取</strong>：文档内的 <code>&lt;nav class="doc-toc"&gt;</code> 是手写的（不是自动生成），前端 <code>querySelectorAll('nav.doc-toc a[href^="#"]')</code> 读出来，用 <code>doc-toc-h(\d)</code> 类名解析层级（h2/h3/h4），渲染到左侧目录栏。</li>
+  <li><strong>滚动高亮</strong>：<code>IntersectionObserver</code> 监听每个目标 section，<code>rootMargin: '-15% 0px -78% 0px'</code>（只看视口顶部带状区域），多个可见时取 <code>boundingClientRect.top</code> 最靠上的 → <code>setActive('#id')</code>。</li>
+  <li><strong>跳转</strong>：点目录 → <code>shadowRoot.querySelector(href).scrollIntoView({behavior:'smooth'})</code>。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 270" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="文档中心渲染管线">
+  <defs>
+    <linearGradient id="fc1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="fc2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="fc3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="fc4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <marker id="fcr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="24" y="40" width="150" height="150" rx="14" fill="url(#fc1)"/>
+    <text x="99" y="70" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">① 请求文档</text>
+    <text x="99" y="92" text-anchor="middle" fill="#eef0fb" font-size="11">GET /api/docs/{id}</text>
+    <text x="99" y="110" text-anchor="middle" fill="#eef0fb" font-size="11">后端返回 meta + html</text>
+    <rect x="38" y="122" width="122" height="52" rx="9" fill="#ffffff" opacity=".16"/>
+    <text x="99" y="142" text-anchor="middle" fill="#fff" font-size="10.5">doc:title / category</text>
+    <text x="99" y="158" text-anchor="middle" fill="#eef0fb" font-size="10.5">order / icon / html</text>
+    <path d="M174 115 L206 115" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#fcr)"/>
+    <rect x="214" y="40" width="160" height="150" rx="14" fill="url(#fc2)"/>
+    <text x="294" y="70" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">② 注入 Shadow DOM</text>
+    <text x="294" y="92" text-anchor="middle" fill="#e0f2fe" font-size="11">正则抠 style + body</text>
+    <text x="294" y="110" text-anchor="middle" fill="#e0f2fe" font-size="11">attachShadow(open)</text>
+    <text x="294" y="128" text-anchor="middle" fill="#e0f2fe" font-size="11">文档样式完全隔离</text>
+    <text x="294" y="146" text-anchor="middle" fill="#e0f2fe" font-size="11">StrictMode 二次挂载</text>
+    <text x="294" y="164" text-anchor="middle" fill="#e0f2fe" font-size="11">replaceChildren 兜底</text>
+    <path d="M374 115 L406 115" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#fcr)"/>
+    <rect x="414" y="40" width="160" height="150" rx="14" fill="url(#fc3)"/>
+    <text x="494" y="70" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">③ 提取手写 TOC</text>
+    <text x="494" y="92" text-anchor="middle" fill="#d1fae5" font-size="11">nav.doc-toc a[href^="#"]</text>
+    <text x="494" y="110" text-anchor="middle" fill="#d1fae5" font-size="11">doc-toc-h(\d) 解析层级</text>
+    <text x="494" y="128" text-anchor="middle" fill="#d1fae5" font-size="11">渲染左侧目录栏</text>
+    <path d="M574 115 L606 115" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#fcr)"/>
+    <rect x="614" y="40" width="160" height="150" rx="14" fill="url(#fc4)"/>
+    <text x="694" y="70" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">④ 高亮 + 跳转</text>
+    <text x="694" y="92" text-anchor="middle" fill="#fef3c7" font-size="11">IntersectionObserver</text>
+    <text x="694" y="110" text-anchor="middle" fill="#fef3c7" font-size="11">-15% ~ -78% 顶部带状</text>
+    <text x="694" y="128" text-anchor="middle" fill="#fef3c7" font-size="11">取最靠上 section 高亮</text>
+    <text x="694" y="146" text-anchor="middle" fill="#fef3c7" font-size="11">scrollIntoView smooth</text>
+    <rect x="24" y="212" width="750" height="40" rx="10" fill="#f4f4f7"/>
+    <text x="399" y="237" text-anchor="middle" fill="#55585f" font-size="12">一次渲染完成：文档正文（Shadow DOM）与左侧目录（TOC）联动滚动</text>
+  </g>
+</svg>
+<div class="fig-cap">文档详情渲染管线：请求 → Shadow DOM 注入 → 手写 TOC 提取 → IntersectionObserver 滚动高亮与平滑跳转。</div>
+</div>
+</section>
+
+<section id="topology">
+<h2>部署拓扑：双容器</h2>
+<p>部署是 <strong>Docker Compose 双容器</strong>（<code>docker-compose.yml</code>）：<code>chat-server</code>（Python FastAPI :8000）负责全部业务；<code>web</code>（Nginx）负责托管前端静态产物 + 反向代理 API 与 WebSocket。本地跑在 OrbStack，通过 <code>dev.orbstack.domains</code> 标签获得两个域名：<code>web.aicumi.orb.local</code> 与 <code>chat-server.aicumi.orb.local</code>。</p>
+
+<h3>chat-server 容器</h3>
+<ul>
+  <li>构建：<code>backend/Dockerfile</code>；暴露 <code>8000:8000</code>，环境变量 <code>HOST/PORT</code>。</li>
+  <li><strong>热更新卷</strong>：<code>./backend/app:/app/app</code> —— 后端代码挂在容器内，改代码即生效（开发友好）。</li>
+  <li><strong>持久化卷</strong>：<code>./backend/data:/app/data</code> —— SQLite（<code>aicumi.db</code>）、主密钥（<code>.master_key</code>）、ChromaDB（<code>memory/</code>）、云空间（<code>cloud-space/</code>）全部落在这里，容器重建不丢。</li>
+  <li>资源与日志：<code>mem_limit: 512m</code>；json-file 日志 10m×3 轮转。</li>
+</ul>
+
+<h3>web 容器（多阶段构建）</h3>
+<pre><code># frontend/Dockerfile —— 两阶段
+FROM node:20-alpine AS builder          # 阶段一：构建
+RUN corepack enable &amp;&amp; corepack prepare pnpm@10.23.0 --activate
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY frontend/ .
+RUN pnpm build                           # tsc -b && vite build → dist
+
+FROM nginx:alpine                        # 阶段二：运行
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80</code></pre>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="双容器部署拓扑">
+  <defs>
+    <linearGradient id="fd1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="fd2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="fd3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="fdr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="24" y="60" width="170" height="130" rx="16" fill="url(#fd1)"/>
+    <text x="109" y="90" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">🌐 浏览器</text>
+    <text x="109" y="112" text-anchor="middle" fill="#eef0fb" font-size="11">web.aicumi.orb.local</text>
+    <text x="109" y="130" text-anchor="middle" fill="#eef0fb" font-size="11">SPA（dist 静态页）</text>
+    <text x="109" y="148" text-anchor="middle" fill="#eef0fb" font-size="11">/api/* REST</text>
+    <text x="109" y="166" text-anchor="middle" fill="#eef0fb" font-size="11">/ws WebSocket</text>
+    <path d="M194 125 L226 125" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#fdr)"/>
+    <rect x="234" y="40" width="250" height="170" rx="16" fill="url(#fd2)"/>
+    <text x="359" y="70" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">web 容器 · Nginx :80</text>
+    <rect x="250" y="84" width="218" height="30" rx="8" fill="#ffffff" opacity=".16"/>
+    <text x="359" y="104" text-anchor="middle" fill="#fff" font-size="11">托管 dist · /assets 缓存 1 年</text>
+    <rect x="250" y="122" width="218" height="30" rx="8" fill="#ffffff" opacity=".16"/>
+    <text x="359" y="142" text-anchor="middle" fill="#fff" font-size="11">反代 /api/ → chat-server:8000</text>
+    <rect x="250" y="160" width="218" height="30" rx="8" fill="#ffffff" opacity=".16"/>
+    <text x="359" y="180" text-anchor="middle" fill="#fff" font-size="11">反代 /ws → 升级长连接</text>
+    <path d="M484 125 L516 125" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#fdr)"/>
+    <rect x="524" y="40" width="220" height="170" rx="16" fill="url(#fd3)"/>
+    <text x="634" y="70" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">chat-server 容器</text>
+    <text x="634" y="92" text-anchor="middle" fill="#d1fae5" font-size="11">Python FastAPI · :8000</text>
+    <text x="634" y="110" text-anchor="middle" fill="#d1fae5" font-size="11">AG2 Agent 编排 · WS 管理器</text>
+    <text x="634" y="128" text-anchor="middle" fill="#d1fae5" font-size="11">RAG / 记忆 / 工作流 / 分布式</text>
+    <rect x="540" y="140" width="188" height="56" rx="10" fill="#ffffff" opacity=".16"/>
+    <text x="634" y="160" text-anchor="middle" fill="#fff" font-size="11">挂载卷 ./backend/data:/app/data</text>
+    <text x="634" y="178" text-anchor="middle" fill="#d1fae5" font-size="11">SQLite · .master_key · ChromaDB</text>
+    <text x="634" y="190" text-anchor="middle" fill="#d1fae5" font-size="10.5">cloud-space · mem_limit 512m</text>
+    <rect x="234" y="230" width="510" height="52" rx="12" fill="#f4f4f7"/>
+    <text x="489" y="252" text-anchor="middle" fill="#55585f" font-size="12">docker compose up -d --build · depends_on: chat-server · restart: unless-stopped</text>
+    <text x="489" y="272" text-anchor="middle" fill="#8b8e96" font-size="11.5">chat-server.aicumi.orb.local/docs 直连后端 Swagger（开发用）</text>
+  </g>
+</svg>
+<div class="fig-cap">双容器拓扑：浏览器 → web（Nginx 静态 + 反代）→ chat-server（FastAPI + AG2），数据全部落在 host 挂载卷。</div>
+</div>
+</section>
+
+<section id="nginx">
+<h2>Nginx 反代细节</h2>
+<p><code>frontend/nginx.conf</code> 只有 38 行，但每个 location 都有讲究：</p>
+
+<pre><code># 静态资源：Vite 产物带内容哈希，可以放心缓存一年
+location /assets/ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+}
+
+# API 反代 → chat-server（透传真实 IP 与协议）
+location /api/ {
+    proxy_pass http://chat-server:8000/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# WebSocket 反代：必须 Upgrade/Connection + 超长读超时
+location /ws {
+    proxy_pass http://chat-server:8000/ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;   # 24h：流式对话可长时间挂起
+}
+
+# SPA fallback：前端路由（如 /demo）都回 index.html
+location / {
+    try_files $uri $uri/ /index.html;
+}</code></pre>
+
+<ul>
+  <li><strong>/assets 缓存一年</strong>：Vite 构建出的文件名带内容哈希（如 <code>index-abc123.js</code>），内容变了文件名就变，因此可以 <code>immutable</code> 长缓存 —— 浏览器回访零请求。</li>
+  <li><strong>/ws 的 86400 读超时</strong>：默认 Nginx 代理 60s 无数据就断连，流式对话（思考可能十几秒没 token）会被误杀。设 24h + HTTP/1.1 Upgrade，是 WS 反代的标准三件套。</li>
+  <li><strong>SPA fallback</strong>：<code>try_files</code> 把不存在的路径（前端路由）落到 <code>/index.html</code>，刷新不 404。</li>
+</ul>
+</section>
+
+<section id="scorecard">
+<h2>与业内对比评分</h2>
+<p>参照<strong>生产级 SaaS 前端</strong>（飞书 / Notion / Linear 级别）的工程标准，按"个人学习项目目标"评分：</p>
+<table>
+  <thead><tr><th style="width:15%">维度</th><th>做了什么</th><th>业内参照</th><th style="width:13%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>组件化</strong></td>
+      <td>AppRail / Sidebar / ChatHeader / MessageList / Composer / 各业务 Panel 组件划分清晰，可复用</td>
+      <td>企业组件库 + 设计系统</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>组件边界好；缺 Storybook 文档、UI 测试、design token 化（部分硬编码色值）</td>
+    </tr>
+    <tr>
+      <td><strong>状态管理</strong></td>
+      <td>useState + useRef + Hooks 组合（useChatSocket 集中管理 WS 状态），Map 结构存消息</td>
+      <td>Zustand / Redux Toolkit / 服务端状态库</td>
+      <td><span class="rating r-4">3.5 ★</span></td>
+      <td>单页规模下够用；缺跨组件共享的全局 store、请求缓存与乐观更新体系（现为手写合并）</td>
+    </tr>
+    <tr>
+      <td><strong>协议设计</strong></td>
+      <td>JSON 事件协议 + 手写事件表 + useChatSocket 封装 + 未读角标/thinking/memory 全可视化</td>
+      <td>Socket.IO / GraphQL Subscription</td>
+      <td><span class="rating r-5">4.2 ★</span></td>
+      <td>协议语义完整、类型化（ClientMessage/ServerMessage）；缺重连退避抖动、消息确认与乱序处理</td>
+    </tr>
+    <tr>
+      <td><strong>构建部署</strong></td>
+      <td>Vite 多阶段构建 + Nginx 静态托管/反代/长缓存 + 双容器 compose + OrbStack 域名</td>
+      <td>CI/CD + CDN + 容器平台</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>本地链路完整；缺 CI（GitHub Actions）、镜像仓库、CDN 与 HTTPS 证书编排</td>
+    </tr>
+    <tr>
+      <td><strong>可访问性</strong></td>
+      <td>导航有 aria-label / aria-current，按钮语义化，图标 + 文字双通道</td>
+      <td>WCAG 2.1 AA</td>
+      <td><span class="rating r-3">2.8 ★</span></td>
+      <td>有基本语义；缺键盘完整遍历、焦点管理（弹窗/抽屉）、对比度与暗色模式校验</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note"><strong>总体：3.7 / 5.0</strong> —— 协议设计与部署链路是亮点（真实可用、可讲）；状态管理在规模变大后会成为瓶颈，可观察性（A11y）是最明显的短板 —— 两个都是很好的练手方向。</div>
+</section>
+
+<section id="code-guide">
+<h2>代码导读</h2>
+<p>建议按"入口 → 布局 → 数据 → 功能 → 部署"的顺序阅读：</p>
+<table>
+  <thead><tr><th>学习点</th><th>关键文件</th><th>关键函数 / 符号</th></tr></thead>
+  <tbody>
+    <tr><td>路由入口</td><td><code>frontend/src/App.tsx</code></td><td><code>BrowserRouter</code>（/demo、/、* 重定向）</td></tr>
+    <tr><td>布局壳与视图分发</td><td><code>frontend/src/components/workspace/Workspace.tsx</code></td><td><code>activeNav</code> 分发、<code>docView</code> 二级状态、CreateGroupModal</td></tr>
+    <tr><td>功能导航栏</td><td><code>frontend/src/components/workspace/AppRail.tsx</code></td><td><code>RAIL_ITEMS</code>（12 启用）、<code>PLANNED_ITEMS</code>（3 规划）、active 高亮</td></tr>
+    <tr><td>WS 协议封装</td><td><code>frontend/src/hooks/useChatSocket.ts</code></td><td><code>handlerRef</code> 分发、<code>streamingRef</code> 累积、未读判定、3s 重连、UUID v4 兜底</td></tr>
+    <tr><td>成员元数据</td><td><code>frontend/src/hooks/useMemberMeta.ts</code></td><td>后端 role/avatar 覆盖前端常量</td></tr>
+    <tr><td>文档中心列表</td><td><code>frontend/src/components/workspace/docs/DocsCenterPage.tsx</code></td><td><code>ICON_MAP</code>、<code>CATEGORY_STYLE</code>、分类卡片 grid</td></tr>
+    <tr><td>文档详情渲染</td><td><code>frontend/src/components/workspace/docs/DocDetailPage.tsx</code></td><td><code>attachShadow</code>、style/body 正则提取、TOC 提取、IntersectionObserver、scrollIntoView</td></tr>
+    <tr><td>后端文档服务</td><td><code>backend/app/docs/router.py</code></td><td><code>_parse_meta()</code>（doc:* meta）、<code>_list_docs()</code>、GET /api/docs/{id}</td></tr>
+    <tr><td>前端镜像</td><td><code>frontend/Dockerfile</code></td><td>node:20-alpine 构建 → nginx:alpine 托管 dist</td></tr>
+    <tr><td>反代配置</td><td><code>frontend/nginx.conf</code></td><td>/assets 一年缓存、/api 与 /ws 反代、SPA fallback</td></tr>
+    <tr><td>编排</td><td><code>docker-compose.yml</code></td><td>chat-server + web 双服务、OrbStack 域名标签、数据卷</td></tr>
+  </tbody>
+</table>
+
+<div class="key">动手实验建议：① 浏览器打开 <code>web.aicumi.orb.local</code> → DevTools Network 观察首屏只请求 index.html + 几个 hash 资源（/assets 缓存生效）→ ② 切到 WS 标签，看连接握手 Upgrade 头（Nginx 反代生效）→ ③ 发一条消息，逐条看 <code>chat.thinking → chat.chunk → chat.done</code> 事件与前端未读角标 → ④ 打开「文档」进任意一篇，滚动看左侧目录高亮跟随，改 URL 直接刷新也不 404（SPA fallback）。</div>
+</section>
+
+</main>
+</body>
+</html>

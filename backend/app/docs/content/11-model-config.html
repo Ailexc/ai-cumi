@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="模型配置中心">
+<meta name="doc:category" content="工程与部署">
+<meta name="doc:order" content="11">
+<meta name="doc:description" content="5 类模型统一管理、能力参数与计费限量、Fernet 加密存储、LLM/Embedding 测试连接、默认模型自动检测与 per-agent 绑定">
+<meta name="doc:icon" content="cpu">
+<title>11 · 模型配置中心</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#center" class="doc-toc-h2">统一配置中心定位</a>
+  <a href="#types" class="doc-toc-h2">5 类模型：按类型管理</a>
+  <a href="#capability" class="doc-toc-h2">能力参数</a>
+  <a href="#pricing" class="doc-toc-h2">计费限量（诚实说明）</a>
+  <a href="#encryption" class="doc-toc-h2">加密存储：Fernet + 主密钥</a>
+  <a href="#test" class="doc-toc-h2">测试连接：LLM / Embedding 双路径</a>
+  <a href="#binding" class="doc-toc-h2">模型绑定与重启恢复</a>
+  <a href="#scorecard" class="doc-toc-h2">与业内对比评分</a>
+  <a href="#code-guide" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">⚙️</div>
+  <div>
+    <h1>模型配置中心</h1>
+    <div class="hero-meta">工程与部署 · 5 类模型统一管理 · Fernet 加密 · 测试连接 · 模型绑定 ｜ 建议先读 <a href="#/api/docs/02-architecture-overview">02 · 架构总览</a></div>
+  </div>
+</div>
+
+<section id="center">
+<h2>统一配置中心定位</h2>
+<p>一个 Agent 平台要接的"模型"远不止聊天：对话 LLM、向量化 Embedding、视觉识别、联网搜索、代码执行……如果每个模块各存各的 Key、各配各的地址，管理就是灾难。<strong>模型配置中心</strong>的定位是：<strong>一个入口，管所有模型</strong>。</p>
+
+<div class="card">
+  <h4>一句话定位</h4>
+  <p style="margin:6px 0 0">所有模型的 <code>Key / 地址 / 能力 / 价格 / 限额</code> 统一存一张表（<code>model_configs</code>），统一加密、统一脱敏、统一测试、统一绑定到 Agent —— 前端「模型」Tab 就是它的全部操作面。</p>
+</div>
+
+<h3>核心职责（对应 REST API）</h3>
+<table>
+  <thead><tr><th>能力</th><th>接口</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>列表 / 分组</td><td><code>GET /api/models</code> · <code>GET /api/models/by-type</code></td><td>按类型过滤；by-type 返回 <code>models_by_type</code> 分组结构（前端 Tab 用）</td></tr>
+    <tr><td>增删改</td><td><code>POST /api/models</code> · <code>GET/PUT/DELETE /api/models/{id}</code></td><td>新建/查询/更新/删除；更新时若带 <code>api_key</code> 会重新加密</td></tr>
+    <tr><td>测试连接</td><td><code>POST /api/models/{id}/test</code></td><td>LLM 发一条消息测延迟；Embedding 走 DashScope/OpenAI 双路径</td></tr>
+    <tr><td>消费方</td><td>各模块通过 <code>ModelManagementService</code> 取解密 Key</td><td>RAG（<code>_get_embedding_provider</code>）、记忆系统、Agent 启动检测都在用</td></tr>
+  </tbody>
+</table>
+
+<p>服务层核心是 <code>backend/app/services/model_service.py</code> 的 <code>ModelManagementService</code>（业务编排）+ <code>ModelKeyEncryptor</code>（密钥加解密），ORM 模型是 <code>backend/app/models/__init__.py</code> 的 <code>ModelConfig</code>，API 层在 <code>backend/app/main.py</code>。前端操作面是 <code>frontend/src/components/workspace/ModelManagement.tsx</code>。</p>
+</section>
+
+<section id="types">
+<h2>5 类模型：按类型管理</h2>
+<p>通过 <code>ModelType</code> 枚举把模型分成 5 类，每类<strong>有且只有一个默认模型</strong>（<code>default_model</code> 布尔位，同类互斥）：</p>
+
+<table>
+  <thead><tr><th>类型</th><th>用途</th><th>前端 Tab</th><th>默认获取方法</th><th>Provider 示例</th></tr></thead>
+  <tbody>
+    <tr><td><code>llm</code></td><td>对话 / 推理（Agent 主脑）</td><td>LLM 对话（紫）</td><td><code>get_default_llm()</code></td><td>openai / anthropic / google / mistral / custom</td></tr>
+    <tr><td><code>embedding</code></td><td>向量化 / 记忆检索 / RAG</td><td>Embedding（蓝）</td><td><code>get_default_embedding()</code></td><td>openai / dashscope（千问）/ custom</td></tr>
+    <tr><td><code>vision</code></td><td>图片识别</td><td>Vision（绿）</td><td><code>get_default_vision()</code></td><td>openai / anthropic / google / custom</td></tr>
+    <tr><td><code>search</code></td><td>联网搜索 API</td><td>Search（橙）</td><td><code>get_default_search()</code></td><td>serper / bing / custom</td></tr>
+    <tr><td><code>code</code></td><td>代码执行沙箱</td><td>Code（青）</td><td>—</td><td>e2b / custom</td></tr>
+  </tbody>
+</table>
+
+<h3>类型互斥默认的实现</h3>
+<p><code>add_model_config(is_default=True)</code> 与 <code>update_model_config(default_model=True)</code> 都会先执行"同类清除"：把同 <code>model_type</code> 且 <code>default_model == True</code> 的其他行全部置 False，再设置新的默认 —— 保证任意时刻每类只有一个默认，消费方 <code>get_default_config(model_type)</code> 永远拿到唯一答案。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="5 类模型分类管理">
+  <defs>
+    <linearGradient id="ma1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+    <linearGradient id="ma2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="ma3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="ma4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="ma5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#06b6d4"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="30" width="156" height="200" rx="16" fill="url(#ma1)"/>
+    <text x="98" y="66" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">🧠 LLM 对话</text>
+    <text x="98" y="90" text-anchor="middle" fill="#ede9fe" font-size="11.5">Agent 主脑 · 流式</text>
+    <rect x="34" y="104" width="128" height="30" rx="8" fill="#ffffff" opacity=".18"/>
+    <text x="98" y="124" text-anchor="middle" fill="#fff" font-size="11">⭐ 默认模型</text>
+    <rect x="34" y="142" width="128" height="72" rx="8" fill="#ffffff" opacity=".14"/>
+    <text x="98" y="164" text-anchor="middle" fill="#ede9fe" font-size="10.5">openai / anthropic</text>
+    <text x="98" y="182" text-anchor="middle" fill="#ede9fe" font-size="10.5">google / mistral</text>
+    <text x="98" y="200" text-anchor="middle" fill="#ede9fe" font-size="10.5">custom 兼容端点</text>
+    <rect x="192" y="30" width="156" height="200" rx="16" fill="url(#ma2)"/>
+    <text x="270" y="66" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">📊 Embedding</text>
+    <text x="270" y="90" text-anchor="middle" fill="#e0f2fe" font-size="11.5">记忆 / RAG 向量化</text>
+    <rect x="206" y="104" width="128" height="30" rx="8" fill="#ffffff" opacity=".18"/>
+    <text x="270" y="124" text-anchor="middle" fill="#fff" font-size="11">⭐ 默认模型</text>
+    <rect x="206" y="142" width="128" height="72" rx="8" fill="#ffffff" opacity=".14"/>
+    <text x="270" y="164" text-anchor="middle" fill="#e0f2fe" font-size="10.5">openai</text>
+    <text x="270" y="182" text-anchor="middle" fill="#e0f2fe" font-size="10.5">dashscope（千问）</text>
+    <text x="270" y="200" text-anchor="middle" fill="#e0f2fe" font-size="10.5">custom</text>
+    <rect x="364" y="30" width="156" height="200" rx="16" fill="url(#ma3)"/>
+    <text x="442" y="66" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">👁️ Vision</text>
+    <text x="442" y="90" text-anchor="middle" fill="#d1fae5" font-size="11.5">图片理解</text>
+    <rect x="378" y="104" width="128" height="30" rx="8" fill="#ffffff" opacity=".18"/>
+    <text x="442" y="124" text-anchor="middle" fill="#fff" font-size="11">⭐ 默认模型</text>
+    <rect x="378" y="142" width="128" height="72" rx="8" fill="#ffffff" opacity=".14"/>
+    <text x="442" y="164" text-anchor="middle" fill="#d1fae5" font-size="10.5">openai / anthropic</text>
+    <text x="442" y="182" text-anchor="middle" fill="#d1fae5" font-size="10.5">google / custom</text>
+    <rect x="536" y="30" width="156" height="200" rx="16" fill="url(#ma4)"/>
+    <text x="614" y="66" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">🔍 Search</text>
+    <text x="614" y="90" text-anchor="middle" fill="#fef3c7" font-size="11.5">联网搜索 API</text>
+    <rect x="550" y="104" width="128" height="30" rx="8" fill="#ffffff" opacity=".18"/>
+    <text x="614" y="124" text-anchor="middle" fill="#fff" font-size="11">⭐ 默认模型</text>
+    <rect x="550" y="142" width="128" height="72" rx="8" fill="#ffffff" opacity=".14"/>
+    <text x="614" y="164" text-anchor="middle" fill="#fef3c7" font-size="10.5">serper / bing</text>
+    <text x="614" y="182" text-anchor="middle" fill="#fef3c7" font-size="10.5">custom</text>
+    <rect x="708" y="30" width="132" height="200" rx="16" fill="url(#ma5)"/>
+    <text x="774" y="66" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">💻 Code</text>
+    <text x="774" y="90" text-anchor="middle" fill="#cffafe" font-size="11.5">代码执行沙箱</text>
+    <rect x="722" y="104" width="104" height="30" rx="8" fill="#ffffff" opacity=".18"/>
+    <text x="774" y="124" text-anchor="middle" fill="#fff" font-size="11">⭐ 默认模型</text>
+    <rect x="722" y="142" width="104" height="72" rx="8" fill="#ffffff" opacity=".14"/>
+    <text x="774" y="164" text-anchor="middle" fill="#cffafe" font-size="10.5">e2b / custom</text>
+    <rect x="20" y="248" width="820" height="38" rx="10" fill="#f4f4f7"/>
+    <text x="430" y="272" text-anchor="middle" fill="#55585f" font-size="12">前端「模型」Tab 五栏切换 · 每类一个默认（⭐）· 全部落在 model_configs 一张表</text>
+  </g>
+</svg>
+<div class="fig-cap">5 类模型卡片：LLM / Embedding / Vision / Search / Code，每类独立管理、各自持有默认模型与 Provider 列表。</div>
+</div>
+
+<div class="tip">设计意图：把"模型"当作<strong>可插拔资源</strong>而非写死的常量 —— 换个 Embedding 模型不用改代码，改配置 + 重新索引即可（详见 <a href="#/api/docs/10-cloud-space-rag">10 · 云空间与 RAG</a> 的 Embedding 适配）。</div>
+</section>
+
+<section id="capability">
+<h2>能力参数</h2>
+<p><code>ModelConfig</code> 为每个模型记录 7 个能力字段，描述"这个模型能干什么、能装多少"。这些字段落在 ORM 列上（<code>backend/app/models/__init__.py</code>），通过 <code>ModelConfigCreate/Update</code> 校验后写入：</p>
+
+<table>
+  <thead><tr><th>参数</th><th>含义</th><th>典型值（参考）</th><th>当前使用场景</th></tr></thead>
+  <tbody>
+    <tr><td><code>embedding_dimensions</code></td><td>向量输出维度</td><td>千问 1024 · text-embedding-3-small 1536</td><td>RAG 实验室显示"向量维度"提示</td></tr>
+    <tr><td><code>max_input_tokens</code></td><td>单次输入上限</td><td>32K / 128K / 200K</td><td>配置展示（容量预估）</td></tr>
+    <tr><td><code>max_output_tokens</code></td><td>单次输出上限</td><td>4K / 8K / 64K</td><td>配置展示</td></tr>
+    <tr><td><code>context_window</code></td><td>总上下文窗口</td><td>128K / 200K</td><td>配置展示</td></tr>
+    <tr><td><code>supports_vision</code></td><td>是否支持图片输入</td><td>—</td><td>配置展示（未来路由到 vision 能力）</td></tr>
+    <tr><td><code>supports_function_calling</code></td><td>是否支持工具调用</td><td>—</td><td>配置展示（工具类 Agent 依赖它）</td></tr>
+    <tr><td><code>supports_streaming</code></td><td>是否支持流式输出</td><td>默认 True</td><td>决定是否走 chat.chunk 流式协议</td></tr>
+  </tbody>
+</table>
+
+<h3>与 AG2 的衔接：model_info 兜底</h3>
+<p>AG2 的 <code>OpenAIChatCompletionClient</code> 需要知道模型能力（是否支持 function calling、token 上限）。对 OpenAI 官方模型它能自动识别；但<strong>自建端点 / 小众模型名会抛 ValueError</strong>。此时 <code>build_model_client()</code> 用 <code>DEFAULT_MODEL_INFO</code> 兜底：<code>ModelInfo(vision=False, function_calling=True, json_output=True, structured_output=True, family=UNKNOWN, token_limit=4096)</code> —— 保证任何兼容端点都能接进来（见 <code>backend/app/agents/agent_manager.py</code>）。</p>
+</section>
+
+<section id="pricing">
+<h2>计费限量（诚实说明）</h2>
+<p><code>ModelConfig</code> 还记录了价格与限流字段，这是对标 LiteLLM Proxy / One API 这类网关的"计费限量"维度：</p>
+
+<table>
+  <thead><tr><th>字段</th><th>含义</th><th>默认值</th></tr></thead>
+  <tbody>
+    <tr><td><code>price_per_1k_input_tokens</code></td><td>每 1K 输入 token 价格（元）</td><td>None</td></tr>
+    <tr><td><code>price_per_1k_output_tokens</code></td><td>每 1K 输出 token 价格（元）</td><td>None</td></tr>
+    <tr><td><code>rate_limit_rpm</code></td><td>每分钟请求上限</td><td>None</td></tr>
+    <tr><td><code>rate_limit_tpm</code></td><td>每分钟 token 上限</td><td>None</td></tr>
+    <tr><td><code>rate_limit_tpd</code></td><td>每天 token 上限</td><td>None</td></tr>
+    <tr><td><code>batch_size</code></td><td>批量调用建议值</td><td>32</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">必须诚实说明：<strong>目前这些字段只是"配置展示"（元数据），限流并没有在请求路径上强制执行。</strong>也就是说，填了 <code>rate_limit_rpm: 10</code>，模型仍然可以被无限次调用 —— 系统不会计数、不会拒绝、不会排队。这与 <code>batch_size</code> 不同：Embedding 分批（25 条/次）是真实生效的（见 <code>DashScopeEmbeddingProvider.embed()</code>），而 rpm/tpm/tpd 目前纯粹是"记在表里"。</div>
+
+<div class="key">面试叙事：诚实比吹牛加分。你可以主动说"限流字段已建模、前端可填，但执行层没做 —— 下一步计划用令牌桶（token bucket）中间件在 <code>build_model_client</code> 外面包一层，或直接接 LiteLLM Proxy 做路由与限流"。这正是"知道自己缺什么"的学习者姿态。</div>
+</section>
+
+<section id="encryption">
+<h2>加密存储：Fernet + 主密钥</h2>
+<p>API Key 是最高敏感度数据，明文落 SQLite 是不可接受的。方案：<strong>Fernet 对称加密 + 主密钥持久化 + 哈希脱敏展示</strong>。</p>
+
+<h3>ModelKeyEncryptor（backend/app/services/model_service.py）</h3>
+<ul>
+  <li><strong>Fernet 对称加密</strong>：<code>encrypt()/decrypt()</code> 直接包装 <code>cryptography.fernet.Fernet</code>；入库存 <code>api_key_encrypted</code>（密文 Text 列）。</li>
+  <li><strong>主密钥派生</strong>：主密钥可以是任意字符串 —— <code>master_key.encode()[:32].ljust(32, b"\x00")</code> 截断/补齐到 32 字节，再 <code>urlsafe_b64encode</code> 成合法 Fernet Key。<strong>关键是"确定性派生"：同一主密钥每次算出同一个 Key</strong>，跨重启稳定可解。</li>
+  <li><strong>脱敏展示</strong>：<code>hash_api_key_for_display()</code> 返回 <code>sk-****{sha256(key)[:8]}</code> —— API 只回这个，前端永远看不到明文。</li>
+</ul>
+
+<h3>主密钥从哪来（backend/app/database.py）</h3>
+<pre><code># get_or_create_master_key()
+if MASTER_KEY_FILE.exists():
+    return MASTER_KEY_FILE.read_text().strip()
+key = secrets.token_urlsafe(32)          # 首次运行自动生成
+MASTER_KEY_FILE.write_text(key)          # 持久化到 data/.master_key
+os.chmod(MASTER_KEY_FILE, 0o600)         # 仅属主可读写</code></pre>
+<p>启动顺序（<code>main.py</code> lifespan）：<code>MODEL_MASTER_KEY</code> 环境变量优先，否则读 <code>data/.master_key</code> 文件（没有就生成）→ 构造 <code>ModelKeyEncryptor(master_key)</code> 单例 → 所有加解密共用。data 目录在 docker-compose 里是 host 挂载卷，<strong>主密钥跟着数据卷走，重启不丢</strong>。</p>
+
+<div class="warn">安全边界（诚实提示）：这是"防君子不防黑客"级别的保护 —— 主密钥就躺在同目录的 <code>.master_key</code> 文件里，拿到磁盘权限就拿到了全部 Key。生产级应该用 KMS / 环境变量注入 / 密钥轮换。但对学习项目，它正确示范了"<strong>密文落库 + 明文只出现在内存</strong>"这一核心原则。</div>
+
+<div class="fig">
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="模型密钥加密存储流程">
+  <defs>
+    <linearGradient id="mb1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="mb2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="mb3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="mb4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <marker id="mbr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <text x="24" y="28" fill="#3730a3" font-size="13" font-weight="700">写入路径（API Key 永不落明文）</text>
+    <rect x="24" y="40" width="170" height="60" rx="12" fill="url(#mb1)"/>
+    <text x="109" y="66" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">用户填写 api_key</text>
+    <text x="109" y="86" text-anchor="middle" fill="#eef0fb" font-size="11">POST /api/models</text>
+    <path d="M194 70 L226 70" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mbr)"/>
+    <rect x="234" y="40" width="170" height="60" rx="12" fill="url(#mb2)"/>
+    <text x="319" y="66" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">Fernet 加密</text>
+    <text x="319" y="86" text-anchor="middle" fill="#e0f2fe" font-size="11">encryptor.encrypt()</text>
+    <path d="M404 70 L436 70" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mbr)"/>
+    <rect x="444" y="40" width="190" height="60" rx="12" fill="url(#mb3)"/>
+    <text x="539" y="66" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">api_key_encrypted 落库</text>
+    <text x="539" y="86" text-anchor="middle" fill="#d1fae5" font-size="11">model_configs 密文列</text>
+    <path d="M634 70 L666 70" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mbr)"/>
+    <rect x="674" y="40" width="162" height="60" rx="12" fill="url(#mb4)"/>
+    <text x="755" y="66" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">API 只回哈希</text>
+    <text x="755" y="86" text-anchor="middle" fill="#fef3c7" font-size="11">sk-****a1b2c3d4</text>
+    <text x="24" y="134" fill="#3730a3" font-size="13" font-weight="700">读取路径（明文只在内存）</text>
+    <rect x="24" y="146" width="170" height="60" rx="12" fill="url(#mb2)"/>
+    <text x="109" y="172" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">get_decrypted_key()</text>
+    <text x="109" y="192" text-anchor="middle" fill="#e0f2fe" font-size="11">内部使用，不进 API</text>
+    <path d="M194 176 L226 176" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mbr)"/>
+    <rect x="234" y="146" width="170" height="60" rx="12" fill="url(#mb3)"/>
+    <text x="319" y="172" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">Fernet 解密</text>
+    <text x="319" y="192" text-anchor="middle" fill="#d1fae5" font-size="11">主密钥派生 Key</text>
+    <path d="M404 176 L436 176" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mbr)"/>
+    <rect x="444" y="146" width="392" height="60" rx="12" fill="url(#mb1)"/>
+    <text x="640" y="172" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">消费方：build_model_client / Embedding provider / 记忆系统</text>
+    <text x="640" y="192" text-anchor="middle" fill="#eef0fb" font-size="11">明文 Key 只存在于进程内存，用完即弃</text>
+    <rect x="234" y="220" width="602" height="26" rx="9" fill="#f4f4f7"/>
+    <text x="535" y="238" text-anchor="middle" fill="#55585f" font-size="11.5">主密钥来源：MODEL_MASTER_KEY 环境变量 或 data/.master_key（首启生成，chmod 600）</text>
+  </g>
+</svg>
+<div class="fig-cap">加密存储双路径：写时加密落库、读时解密进内存，API 层永远只见哈希摘要。</div>
+</div>
+</section>
+
+<section id="test">
+<h2>测试连接：LLM / Embedding 双路径</h2>
+<p>"配完能不能用"是高频操作。前端每个模型行都有<strong>测试按钮</strong>，调用 <code>POST /api/models/{id}/test</code> → <code>test_model()</code>（<code>backend/app/main.py</code>），按类型分流：</p>
+
+<h3>LLM / 对话模型：chat.completions 实测延迟</h3>
+<pre><code># 构造 AsyncOpenAI 客户端（anthropic 默认补 base_url）
+client = AsyncOpenAI(**client_kwargs)
+resp = await client.chat.completions.create(
+    model=model_name,
+    messages=[{"role": "user", "content": "Say 'hello' in one word."}],
+    max_tokens=10,
+)
+reply = resp.choices[0].message.content.strip()
+latency = round((time.time() - start) * 1000)
+return {"status": "ok", "reply": reply, "latency_ms": latency}</code></pre>
+
+<h3>Embedding：双路径（DashScope 专用 URL vs OpenAI 格式）</h3>
+<p><code>test_model()</code> 先做三路判定：<code>provider == "dashscope"</code> 或 <code>"dashscope" in base_url</code> 或 <code>"qwen" in model_name</code> → 走 <code>_test_dashscope_embedding()</code>；否则走 <code>_test_openai_embedding()</code>。两者都返回 <code>连接成功，向量维度: N</code> + 延迟。</p>
+
+<h3>千问 404 修复故事（真实的踩坑）</h3>
+<div class="warn">DashScope 的 Embedding 是<strong>专用服务端点</strong>（<code>/api/v1/services/embeddings/text-embedding/text-embedding</code>），不是 OpenAI 的 <code>/v1/embeddings</code>。最初实现直接拼 <code>base_url + "/api/v1/services/..."</code>，但只要用户在配置里把 base_url 填成<strong>已含 /api/v1</strong> 的完整地址（网上教程常见写法），请求就变成 <code>/api/v1/api/v1/services/...</code> → 404。修复：先判断 <code>base.endswith("/api/v1")</code>，是则不再重复拼 —— 测试连接与 RAG 的 Embedding provider（<code>embedding_provider.py</code> 同款逻辑）双双受益。</div>
+
+<div class="fig">
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="模型测试连接双路径">
+  <defs>
+    <linearGradient id="mc1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="mc2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="mc3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="mc4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="mcr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="24" y="30" width="180" height="190" rx="16" fill="url(#mc1)"/>
+    <text x="114" y="60" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">POST /api/models/{id}/test</text>
+    <text x="114" y="82" text-anchor="middle" fill="#eef0fb" font-size="11.5">解密 Key → 判类型</text>
+    <rect x="38" y="96" width="152" height="40" rx="10" fill="#ffffff" opacity=".16"/>
+    <text x="114" y="114" text-anchor="middle" fill="#fff" font-size="11.5">type == embedding？</text>
+    <text x="114" y="130" text-anchor="middle" fill="#eef0fb" font-size="11">is_dashscope 三路判定</text>
+    <rect x="38" y="148" width="152" height="56" rx="10" fill="#ffffff" opacity=".14"/>
+    <text x="114" y="168" text-anchor="middle" fill="#eef0fb" font-size="11">LLM → chat.completions</text>
+    <text x="114" y="186" text-anchor="middle" fill="#eef0fb" font-size="11">Embedding → 双路径</text>
+    <text x="114" y="198" text-anchor="middle" fill="#eef0fb" font-size="10.5">返回 reply + latency_ms</text>
+    <path d="M204 110 L250 110" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mcr)"/>
+    <rect x="258" y="30" width="276" height="70" rx="14" fill="url(#mc3)"/>
+    <text x="396" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">LLM 路径（对话 / 推理）</text>
+    <text x="396" y="78" text-anchor="middle" fill="#fef3c7" font-size="11.5">AsyncOpenAI chat.completions · max_tokens=10 · 测延迟</text>
+    <path d="M204 180 L250 180" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mcr)"/>
+    <rect x="258" y="120" width="130" height="70" rx="14" fill="url(#mc2)"/>
+    <text x="323" y="150" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">OpenAI 格式</text>
+    <text x="323" y="170" text-anchor="middle" fill="#e0f2fe" font-size="11">/v1/embeddings</text>
+    <rect x="404" y="120" width="130" height="70" rx="14" fill="url(#mc4)"/>
+    <text x="469" y="150" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">DashScope 专用 URL</text>
+    <text x="469" y="170" text-anchor="middle" fill="#d1fae5" font-size="11">services/embeddings/...</text>
+    <path d="M534 155 L580 155" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mcr)"/>
+    <rect x="588" y="30" width="248" height="190" rx="16" fill="#475569"/>
+    <text x="712" y="60" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">统一返回</text>
+    <rect x="604" y="74" width="216" height="56" rx="10" fill="#ffffff" opacity=".14"/>
+    <text x="712" y="96" text-anchor="middle" fill="#e2e8f0" font-size="11.5">{"status": "ok",</text>
+    <text x="712" y="114" text-anchor="middle" fill="#e2e8f0" font-size="11.5"> "reply": "连接成功…",</text>
+    <text x="712" y="122" text-anchor="middle" fill="#e2e8f0" font-size="10.5"> "latency_ms": 321}</text>
+    <rect x="604" y="144" width="216" height="58" rx="10" fill="#ffffff" opacity=".14"/>
+    <text x="712" y="166" text-anchor="middle" fill="#e2e8f0" font-size="11.5">失败 {"status": "error",</text>
+    <text x="712" y="184" text-anchor="middle" fill="#e2e8f0" font-size="11.5"> "error": str(e),</text>
+    <text x="712" y="192" text-anchor="middle" fill="#e2e8f0" font-size="10.5"> "latency_ms": …}</text>
+  </g>
+</svg>
+<div class="fig-cap">测试连接分流：LLM 走 chat.completions；Embedding 按 is_dashscope 判定走 OpenAI 格式或 DashScope 专用端点，统一回状态 + 延迟。</div>
+</div>
+</section>
+
+<section id="binding">
+<h2>模型绑定与重启恢复</h2>
+<p>配置中心最终要回答一个产品问题：<strong>每个员工（Agent）用哪个模型？</strong>答案是三层：系统默认 → 全局默认模型 → per-agent 覆盖。</p>
+
+<h3>启动时自动检测默认模型（main.py lifespan）</h3>
+<pre><code># mock 自动检测：存在默认模型配置 → 真实模式，否则 mock 兜底
+configs = service.get_all_configs()
+default = next((c for c in configs if c.default_model), None) or (configs[0] if configs else None)
+if default:
+    client = build_model_client(provider=default.provider, model_name=default.model_name,
+                                api_key=api_key, base_url=default.base_url)
+    agent_manager = AgentManager(mock_mode=False)
+    agent_manager.set_model_client(client, stream=True)   # ✅ 真实模式</code></pre>
+<p>这就是"重启后端即进入真实对话"的实现：<code>settings.mock_mode</code> 不是 True 时，只要库里有默认模型且能解密 Key，就构建 AG2 客户端进入真实模式；否则安全回退 mock。构建函数 <code>build_model_client()</code>（<code>agent_manager.py</code>）：Anthropic 走原生 <code>AnthropicChatCompletionClient</code>（缺依赖则回落），其余全部走 <code>OpenAIChatCompletionClient</code> —— 任意 OpenAI 兼容端点（DeepSeek / Moonshot / 自建 vLLM）都能接。</p>
+
+<h3>per-agent 模型覆盖（成员级绑定）</h3>
+<ul>
+  <li>每个成员在 <code>member_profiles.model_id</code> 存一个模型配置 id（成员管理里切换模型 → 写这个字段 → 审计日志）。</li>
+  <li>运行时：<code>_build_agent_instance()</code> 取 <code>client = agent_model_clients.get(agent_id) or model_client</code> —— 有覆盖用覆盖，没有用全局默认。</li>
+  <li><strong>关键细节</strong>：<code>has_override = agent_id in agent_model_clients</code>，只要存在 per-agent 覆盖，即使 Manager 处于 mock 模式也强制真实模式（用户明确给这个成员绑了模型，就尊重它）。</li>
+</ul>
+
+<h3>重启恢复绑定</h3>
+<p>lifespan 里有一整段"<strong>Re-apply per-agent model bindings</strong>"：查询所有 <code>MemberProfile.model_id</code> 非空的成员 → 逐个解密 Key → <code>build_model_client()</code> → 写入 <code>agent_model_clients[agent_id]</code> → <code>rebuild_agent(agent_id)</code> 重建 AG2 Agent 实例。所以<strong>重启后每个成员的模型绑定自动恢复</strong>，不需要重新配置。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="模型绑定与重启恢复">
+  <defs>
+    <linearGradient id="md1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="md2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="md3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="md4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <marker id="mdr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <text x="24" y="28" fill="#3730a3" font-size="13" font-weight="700">应用启动（lifespan）</text>
+    <rect x="24" y="40" width="160" height="86" rx="14" fill="url(#md1)"/>
+    <text x="104" y="66" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">检测默认模型</text>
+    <text x="104" y="88" text-anchor="middle" fill="#eef0fb" font-size="11">default_model 优先</text>
+    <text x="104" y="106" text-anchor="middle" fill="#eef0fb" font-size="11">无则取第一条</text>
+    <path d="M184 83 L216 83" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mdr)"/>
+    <rect x="224" y="40" width="160" height="86" rx="14" fill="url(#md2)"/>
+    <text x="304" y="66" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">build_model_client</text>
+    <text x="304" y="88" text-anchor="middle" fill="#e0f2fe" font-size="11">OpenAI 兼容客户端</text>
+    <text x="304" y="106" text-anchor="middle" fill="#e0f2fe" font-size="11">model_info 兜底</text>
+    <path d="M384 83 L416 83" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mdr)"/>
+    <rect x="424" y="40" width="200" height="86" rx="14" fill="url(#md3)"/>
+    <text x="524" y="66" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">set_model_client(stream)</text>
+    <text x="524" y="88" text-anchor="middle" fill="#d1fae5" font-size="11">AgentManager 真实模式</text>
+    <text x="524" y="106" text-anchor="middle" fill="#d1fae5" font-size="11">mock 自动兜底</text>
+    <path d="M624 83 L656 83" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mdr)"/>
+    <rect x="664" y="40" width="172" height="86" rx="14" fill="#475569"/>
+    <text x="750" y="66" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">默认 Agent 群</text>
+    <text x="750" y="88" text-anchor="middle" fill="#e2e8f0" font-size="11">可灵 / 小研 / 小码</text>
+    <text x="750" y="106" text-anchor="middle" fill="#e2e8f0" font-size="11">共用全局模型</text>
+    <text x="24" y="162" fill="#3730a3" font-size="13" font-weight="700">重启恢复 per-agent 绑定（member_profiles.model_id）</text>
+    <rect x="24" y="174" width="170" height="70" rx="14" fill="url(#mb2)"/>
+    <text x="109" y="198" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">遍历绑定记录</text>
+    <text x="109" y="218" text-anchor="middle" fill="#e0f2fe" font-size="11">model_id 非空成员</text>
+    <path d="M194 209 L226 209" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mdr)"/>
+    <rect x="234" y="174" width="170" height="70" rx="14" fill="url(#md4)"/>
+    <text x="319" y="198" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">逐个重建客户端</text>
+    <text x="319" y="218" text-anchor="middle" fill="#fef3c7" font-size="11">解密 Key → build</text>
+    <path d="M404 209 L436 209" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mdr)"/>
+    <rect x="444" y="174" width="180" height="70" rx="14" fill="url(#md3)"/>
+    <text x="534" y="198" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">agent_model_clients[agent_id]</text>
+    <text x="534" y="218" text-anchor="middle" fill="#d1fae5" font-size="11">覆盖全局默认</text>
+    <path d="M624 209 L656 209" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#mdr)"/>
+    <rect x="664" y="174" width="172" height="70" rx="14" fill="url(#md1)"/>
+    <text x="750" y="198" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">rebuild_agent()</text>
+    <text x="750" y="218" text-anchor="middle" fill="#eef0fb" font-size="11">重建 AG2 实例生效</text>
+  </g>
+</svg>
+<div class="fig-cap">两层绑定：启动时检测默认模型构建全局客户端；重启时按 member_profiles.model_id 恢复每个成员的专属模型客户端。</div>
+</div>
+
+<div class="key">学习要点：这套设计的核心是<strong>"配置与运行时解耦"</strong> —— 配置中心只管"记"，AgentManager 只管"取"。任何模块要 Key 就调 <code>get_decrypted_key()</code>，要客户端就调 <code>build_model_client()</code>，新增模型类型不需要动业务代码。</div>
+</section>
+
+<section id="scorecard">
+<h2>与业内对比评分</h2>
+<p>参照 <strong>LiteLLM Proxy</strong>（业界最流行的 LLM 网关）与 <strong>One API</strong>（国内开源网关），按"个人学习项目目标"评分：</p>
+<table>
+  <thead><tr><th style="width:15%">维度</th><th>做了什么</th><th>业内参照</th><th style="width:13%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>多类型管理</strong></td>
+      <td>llm / embedding / vision / search / code 五类一张表，每类一个默认，前端 Tab 分栏管理</td>
+      <td>LiteLLM model_list / One API 渠道</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>分类建模完整；缺模型健康状态自动检测、批量导入（yaml/json）</td>
+    </tr>
+    <tr>
+      <td><strong>加密存储</strong></td>
+      <td>Fernet 对称加密 + 主密钥持久化（.master_key / env）+ api_key_hash 脱敏展示，明文只在内存</td>
+      <td>LiteLLM（master_key / 数据库加密）/ Vault</td>
+      <td><span class="rating r-4">4.2 ★</span></td>
+      <td>示范了正确原则；缺 KMS 托管、密钥轮换、审计式解密日志</td>
+    </tr>
+    <tr>
+      <td><strong>测试连接</strong></td>
+      <td>LLM chat.completions 实测 + Embedding 双路径（OpenAI 格式 vs DashScope 专用端点），返回延迟</td>
+      <td>LiteLLM /test、One API 测试渠道</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>功能到位；缺批量并发测试、延迟/成功率统计曲线</td>
+    </tr>
+    <tr>
+      <td><strong>限流执行</strong></td>
+      <td>rpm/tpm/tpd 字段已建模、前端可填，<strong>但未在请求路径强制执行</strong></td>
+      <td>LiteLLM 路由限流 / One API 令牌桶</td>
+      <td><span class="rating r-2">2.0 ★</span></td>
+      <td>诚实短板：需在 build_model_client 外层加令牌桶中间件，或直接接入 LiteLLM 做转发</td>
+    </tr>
+    <tr>
+      <td><strong>自动路由</strong></td>
+      <td>启动自动检测默认模型；per-agent 绑定可覆盖；无故障转移</td>
+      <td>LiteLLM 多模型路由 / 故障切换 / 负载均衡</td>
+      <td><span class="rating r-3">2.5 ★</span></td>
+      <td>绑定语义真实；缺同一类型多模型间的自动路由、失败重试到备用模型</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note"><strong>总体：3.3 / 5.0</strong> —— 管理与加密维度做得好（学习级里少见地完整），限流执行与自动路由是刻意留白：前者可以作为一个很好的"给项目加中间件"的练手题，后者是接 LiteLLM 的自然演进。</div>
+</section>
+
+<section id="code-guide">
+<h2>代码导读</h2>
+<p>推荐阅读顺序：先看数据模型，再看加密器，然后服务层，最后看 API 与启动绑定：</p>
+<table>
+  <thead><tr><th>学习点</th><th>关键文件</th><th>关键函数 / 符号</th></tr></thead>
+  <tbody>
+    <tr><td>ORM 与枚举</td><td><code>backend/app/models/__init__.py</code></td><td><code>ModelType</code>（5 类）、<code>ModelProvider</code>、<code>ModelConfig</code>（能力/价格列）</td></tr>
+    <tr><td>加密器</td><td><code>backend/app/services/model_service.py</code></td><td><code>ModelKeyEncryptor.encrypt/decrypt</code>、<code>hash_api_key_for_display()</code>、主密钥派生</td></tr>
+    <tr><td>服务编排</td><td><code>backend/app/services/model_service.py</code></td><td><code>add_model_config()</code>（同类默认互斥）、<code>get_default_config()</code>、<code>get_decrypted_key()</code></td></tr>
+    <tr><td>主密钥持久化</td><td><code>backend/app/database.py</code></td><td><code>get_or_create_master_key()</code>（.master_key + chmod 600）</td></tr>
+    <tr><td>模型 API</td><td><code>backend/app/main.py</code></td><td><code>list_models / create_model / update_model</code>（api_key 重新加密）、<code>test_model()</code></td></tr>
+    <tr><td>Embedding 测试双路径</td><td><code>backend/app/main.py</code></td><td><code>_test_dashscope_embedding()</code>（防双 /api/v1）、<code>_test_openai_embedding()</code></td></tr>
+    <tr><td>客户端构建</td><td><code>backend/app/agents/agent_manager.py</code></td><td><code>build_model_client()</code>（Anthropic 原生 + OpenAI 兼容 + DEFAULT_MODEL_INFO 兜底）</td></tr>
+    <tr><td>启动检测与绑定恢复</td><td><code>backend/app/main.py</code> lifespan</td><td>mock 自动检测分支、Re-apply per-agent bindings、<code>agent_model_clients</code></td></tr>
+    <tr><td>per-agent 生效逻辑</td><td><code>backend/app/agents/agent_manager.py</code></td><td><code>_build_agent_instance()</code>（<code>has_override</code> 强制真实模式）</td></tr>
+    <tr><td>前端管理页</td><td><code>frontend/src/components/workspace/ModelManagement.tsx</code></td><td>5 类型 Tab（TYPE_TABS）、Provider 联动、测试按钮 → <code>/api/models/{id}/test</code></td></tr>
+  </tbody>
+</table>
+
+<div class="key">动手实验建议：① 在「模型」Tab 添加一个 DashScope 千问 Embedding（base_url 填 <code>https://dashscope.aliyuncs.com</code> 和 <code>https://dashscope.aliyuncs.com/api/v1</code> 各试一次，观察测试按钮的差异）→ ② 点测试看延迟 → ③ 重启后端，观察日志里 "Real mode: default model …" 与成员绑定恢复打印 → ④ 打开 <code>backend/data/aicumi.db</code> 看一眼 <code>api_key_encrypted</code> 列 —— 全是密文。</div>
+</section>
+
+</main>
+</body>
+</html>

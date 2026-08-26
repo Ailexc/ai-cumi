@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="云空间与 RAG 知识问答">
+<meta name="doc:category" content="进阶">
+<meta name="doc:order" content="10">
+<meta name="doc:description" content="云空间文件管理、文档解析分块、千问 Embedding、ChromaDB 索引、向量/关键词/混合检索、Agent 引用溯源与 RAG 实验室">
+<meta name="doc:icon" content="database">
+<title>10 · 云空间与 RAG 知识问答</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#rag-what" class="doc-toc-h2">RAG 是什么：检索增强生成</a>
+  <a href="#cloud-files" class="doc-toc-h2">云空间文件管理</a>
+  <a href="#parsing" class="doc-toc-h2">文档解析：多格式提取</a>
+  <a href="#chunking" class="doc-toc-h2">分块策略与调参</a>
+  <a href="#embedding" class="doc-toc-h2">Embedding 适配：千问 DashScope</a>
+  <a href="#retrieval" class="doc-toc-h2">检索：向量 / 关键词 / 混合 RRF</a>
+  <a href="#chroma" class="doc-toc-h2">ChromaDB 索引管理</a>
+  <a href="#agent-integration" class="doc-toc-h2">Agent 集成与引用溯源</a>
+  <a href="#rag-lab" class="doc-toc-h2">RAG 实验室：可视化调参</a>
+  <a href="#scorecard" class="doc-toc-h2">与业内对比评分</a>
+  <a href="#code-guide" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">📚</div>
+  <div>
+    <h1>云空间与 RAG 知识问答</h1>
+    <div class="hero-meta">进阶 · 云空间文件管理 → 解析分块 → Embedding → ChromaDB → 混合检索 → Agent 引用溯源 ｜ 建议先读 <a href="#/api/docs/02-architecture-overview">02 · 架构总览</a></div>
+  </div>
+</div>
+
+<section id="rag-what">
+<h2>RAG 是什么：检索增强生成</h2>
+<p><strong>RAG（Retrieval-Augmented Generation，检索增强生成）</strong>是解决 LLM「幻觉」与「知识过期」两大问题的标准范式：模型本身不知道你的私有文档，那就先把文档变成可检索的知识库，回答问题时<strong>先把相关知识检索出来，注入 Prompt</strong>，再让模型基于这些材料生成 —— 让模型"开卷考试"而不是"闭卷编造"。</p>
+
+<div class="card">
+  <h4>一句话原理</h4>
+  <p style="margin:6px 0 0"><code>回答 = LLM( 用户问题 + 检索到的相关文档片段 )</code>。四个环节缺一不可：<strong>知识库（建）→ 检索（取）→ 注入（拼）→ 生成（答）</strong>。</p>
+</div>
+
+<h3>为什么能降低幻觉</h3>
+<ul>
+  <li><strong>事实接地（grounding）</strong>：回答必须基于注入的片段，模型不再"自由发挥"——Prompt 里明确要求"上下文中没有相关信息请说明"。</li>
+  <li><strong>知识实时性</strong>：重新索引一次文档，知识库就"更新"了，不需要重训模型。</li>
+  <li><strong>可溯源</strong>：每个片段都带来源（文件名 + 路径），回答可以引用、可以被验证。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RAG 全链路图">
+  <defs>
+    <linearGradient id="ra1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="ra2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="ra3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="ra4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="rar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <text x="24" y="28" fill="#3730a3" font-size="13" font-weight="700">① 离线索引流水线 · 把文档变成向量</text>
+    <rect x="24" y="40" width="190" height="92" rx="14" fill="url(#ra1)"/>
+    <text x="119" y="68" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">上传文档</text>
+    <text x="119" y="90" text-anchor="middle" fill="#eef0fb" font-size="11">云空间 /api/files</text>
+    <text x="119" y="108" text-anchor="middle" fill="#eef0fb" font-size="11">MD / PDF / DOCX / HTML</text>
+    <rect x="234" y="40" width="190" height="92" rx="14" fill="url(#ra2)"/>
+    <text x="329" y="68" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">解析 + 分块</text>
+    <text x="329" y="90" text-anchor="middle" fill="#e0f2fe" font-size="11">parser.py 提取全文</text>
+    <text x="329" y="108" text-anchor="middle" fill="#e0f2fe" font-size="11">chunker.py 切成片段</text>
+    <rect x="444" y="40" width="190" height="92" rx="14" fill="url(#ra3)"/>
+    <text x="539" y="68" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">Embedding 向量化</text>
+    <text x="539" y="90" text-anchor="middle" fill="#fef3c7" font-size="11">千问 qwen3.7 向量模型</text>
+    <text x="539" y="108" text-anchor="middle" fill="#fef3c7" font-size="11">批量 25 条 / 次 · 1024 维</text>
+    <rect x="654" y="40" width="182" height="92" rx="14" fill="#475569"/>
+    <text x="745" y="68" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">ChromaDB 向量库</text>
+    <text x="745" y="90" text-anchor="middle" fill="#e2e8f0" font-size="11">knowledge_chunks</text>
+    <text x="745" y="108" text-anchor="middle" fill="#e2e8f0" font-size="11">cosine 距离索引</text>
+    <path d="M214 86 L226 86" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rar)"/>
+    <path d="M424 86 L436 86" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rar)"/>
+    <path d="M634 86 L646 86" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rar)"/>
+    <path d="M745 132 L745 160 L329 160 L329 196" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#rar)"/>
+    <text x="537" y="154" text-anchor="middle" fill="#8b8e96" font-size="11.5">检索时按语义相似度取回</text>
+    <text x="24" y="212" fill="#3730a3" font-size="13" font-weight="700">② 在线问答流水线 · 检索注入再生成</text>
+    <rect x="24" y="224" width="190" height="92" rx="14" fill="url(#ra2)"/>
+    <text x="119" y="252" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">用户提问</text>
+    <text x="119" y="274" text-anchor="middle" fill="#e0f2fe" font-size="11">chat.send / knowledgeScope</text>
+    <text x="119" y="292" text-anchor="middle" fill="#e0f2fe" font-size="11">REST 或 WS 均可</text>
+    <rect x="234" y="224" width="190" height="92" rx="14" fill="url(#ra4)"/>
+    <text x="329" y="252" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">检索 top-k</text>
+    <text x="329" y="274" text-anchor="middle" fill="#d1fae5" font-size="11">向量 / 关键词 / RRF 混合</text>
+    <text x="329" y="292" text-anchor="middle" fill="#d1fae5" font-size="11">retriever.py</text>
+    <rect x="444" y="224" width="190" height="92" rx="14" fill="url(#ra3)"/>
+    <text x="539" y="252" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">Prompt 注入</text>
+    <text x="539" y="274" text-anchor="middle" fill="#fef3c7" font-size="11">_build_rag_context 拼接</text>
+    <text x="539" y="292" text-anchor="middle" fill="#fef3c7" font-size="11">[知识库上下文] 模板</text>
+    <rect x="654" y="224" width="182" height="92" rx="14" fill="url(#ra1)"/>
+    <text x="745" y="252" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">LLM 生成</text>
+    <text x="745" y="274" text-anchor="middle" fill="#eef0fb" font-size="11">AG2 流式回答</text>
+    <text x="745" y="292" text-anchor="middle" fill="#eef0fb" font-size="11">引用 [文档片段 N]</text>
+    <path d="M214 270 L226 270" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rar)"/>
+    <path d="M424 270 L436 270" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rar)"/>
+    <path d="M634 270 L646 270" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rar)"/>
+  </g>
+</svg>
+<div class="fig-cap">RAG 全链路：上半条是<strong>离线索引</strong>（文档 → 向量库），下半条是<strong>在线问答</strong>（提问 → 检索 → 注入 → 生成）。两条线由向量库串起来。</div>
+</div>
+
+<div class="key">学习要点：RAG 的难点从来不是"调一个 Embedding API"，而是<strong>解析质量、分块粒度、检索召回与阈值调优</strong>四个环节的配合 —— 本篇后续逐环拆解。</div>
+</section>
+
+<section id="cloud-files">
+<h2>云空间文件管理</h2>
+<p>云空间是 RAG 的<strong>语料来源</strong>：一个本地文件系统目录（<code>backend/data/cloud-space/</code>），通过 REST API 暴露文件树 / 上传 / 删除 / 建文件夹 / 搜索，并支持<strong>多格式只读预览</strong>（Markdown / 代码 / PDF / 图片）。</p>
+
+<h3>文件服务层</h3>
+<p>核心实现是 <code>backend/app/cloud_space/file_service.py</code>，全部操作基于 <code>Path</code> 完成：</p>
+<ul>
+  <li><code>list_directory()</code>：列目录（目录在前，按名称排序）；<code>build_tree()</code>：递归构建整棵文件树（前端左侧树）。</li>
+  <li><code>create_folder() / save_upload() / delete_path()</code>：建目录、写文件（<code>shutil.copyfileobj</code>）、删除（文件 <code>unlink</code>，目录 <code>rmtree</code>，禁止删根）。</li>
+  <li><strong>安全边界</strong>：<code>_resolve_path()</code> 用 <code>Path.resolve()</code> 后校验 <code>str(target).startswith(str(root))</code>，防止 <code>../</code> 穿越出云空间根目录；router 层 <code>_safe_path()</code> 再剥离前导斜杠并拒绝含 <code>..</code> 的路径。</li>
+</ul>
+
+<h3>多格式预览</h3>
+<p><code>preview_service.preview_file()</code> 按扩展名/ MIME 分派四种预览类型：</p>
+<table>
+  <thead><tr><th>类型</th><th>触发条件</th><th>实现</th><th>前端渲染</th></tr></thead>
+  <tbody>
+    <tr><td><code>text</code></td><td><code>.md/.txt/.py/.js/.ts/.json/.yaml/.html/.css/.sql/.sh</code> 等</td><td>直接 <code>read_text</code> + <code>_guess_language()</code> 映射语法高亮语言</td><td>Markdown 渲染 or 代码高亮（highlight.js）</td></tr>
+    <tr><td><code>pdf</code></td><td><code>.pdf</code></td><td>pymupdf（fitz）按页渲染为 base64 PNG（dpi 120），返回 <code>pages[]</code> + <code>page_count</code></td><td>PDFPreview 逐页图片</td></tr>
+    <tr><td><code>image</code></td><td>MIME 以 <code>image/</code> 开头</td><td>文件字节转 <code>data:image/*;base64,...</code> Data URL</td><td>ImagePreview 点击放大（yet-another-react-lightbox 灯箱）</td></tr>
+    <tr><td><code>unsupported</code></td><td>其他二进制</td><td>只回 MIME + 大小，不回内容</td><td>"暂不支持的文件格式"占位</td></tr>
+  </tbody>
+</table>
+
+<h3>REST API 一览</h3>
+<p>路由定义在 <code>backend/app/cloud_space/router.py</code>（prefix <code>/api/files</code>）：</p>
+<pre><code>GET    /api/files?path=docs        # 列目录
+GET    /api/files/tree             # 递归文件树（前端用）
+POST   /api/files/folder           # 新建文件夹  {path}
+POST   /api/files/upload           # 单文件上传  multipart: file + path
+POST   /api/files/upload-batch     # 多文件上传
+GET    /api/files/{path}/content   # 原始内容（StreamingResponse）
+GET    /api/files/{path}/preview   # 预览数据（text/pdf/image）
+GET    /api/files/{path}/download  # 下载（FileResponse）
+DELETE /api/files/{path}           # 删除，并同步清理知识库索引</code></pre>
+<div class="note">删除接口的细节：<code>DELETE /{path}</code> 在物理删除前会先调 <code>KnowledgeIndexer.delete_by_path()</code> 清理该文件对应的 ChromaDB 向量与 <code>knowledge_documents</code> 记录 —— 云空间与知识库保持一致性。</div>
+
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="云空间文件管理与预览">
+  <defs>
+    <linearGradient id="rb1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="rb2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="rb3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="rbr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="24" y="26" width="220" height="248" rx="16" fill="url(#rb1)"/>
+    <text x="134" y="54" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">📁 文件树（前端左侧）</text>
+    <rect x="40" y="66" width="188" height="26" rx="7" fill="#ffffff" opacity=".16"/>
+    <text x="134" y="84" text-anchor="middle" fill="#fff" font-size="11.5">📂 docs/（研发文档）</text>
+    <rect x="56" y="98" width="172" height="26" rx="7" fill="#ffffff" opacity=".12"/>
+    <text x="142" y="116" text-anchor="middle" fill="#fff" font-size="11.5">📄 架构设计.md</text>
+    <rect x="56" y="130" width="172" height="26" rx="7" fill="#ffffff" opacity=".12"/>
+    <text x="142" y="148" text-anchor="middle" fill="#fff" font-size="11.5">📄 API 手册.pdf</text>
+    <rect x="40" y="162" width="188" height="26" rx="7" fill="#ffffff" opacity=".16"/>
+    <text x="134" y="180" text-anchor="middle" fill="#fff" font-size="11.5">📂 images/（素材）</text>
+    <rect x="56" y="194" width="172" height="26" rx="7" fill="#ffffff" opacity=".12"/>
+    <text x="142" y="212" text-anchor="middle" fill="#fff" font-size="11.5">🖼️ logo.png</text>
+    <rect x="40" y="226" width="188" height="34" rx="7" fill="#ffffff" opacity=".16"/>
+    <text x="134" y="248" text-anchor="middle" fill="#fff" font-size="11.5">🔍 搜索过滤（递归 walk）</text>
+    <path d="M244 150 L280 150" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rbr)"/>
+    <rect x="292" y="26" width="250" height="248" rx="16" fill="url(#rb2)"/>
+    <text x="417" y="54" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🌐 REST API（/api/files）</text>
+    <text x="417" y="82" text-anchor="middle" fill="#e0f2fe" font-size="11.5">list / tree / folder / upload</text>
+    <text x="417" y="102" text-anchor="middle" fill="#e0f2fe" font-size="11.5">upload-batch / preview / download</text>
+    <text x="417" y="122" text-anchor="middle" fill="#e0f2fe" font-size="11.5">delete（联动清理知识索引）</text>
+    <rect x="308" y="140" width="218" height="52" rx="10" fill="#ffffff" opacity=".14"/>
+    <text x="417" y="162" text-anchor="middle" fill="#fff" font-size="11.5">file_service.py 文件系统 CRUD</text>
+    <text x="417" y="180" text-anchor="middle" fill="#e0f2fe" font-size="11.5">路径穿越防护 startswith 校验</text>
+    <rect x="308" y="204" width="218" height="52" rx="10" fill="#ffffff" opacity=".14"/>
+    <text x="417" y="226" text-anchor="middle" fill="#fff" font-size="11.5">preview_service.py 预览分派</text>
+    <text x="417" y="244" text-anchor="middle" fill="#e0f2fe" font-size="11.5">text / pdf / image / unsupported</text>
+    <path d="M542 150 L578 150" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rbr)"/>
+    <rect x="590" y="26" width="246" height="248" rx="16" fill="url(#rb3)"/>
+    <text x="713" y="54" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🖥️ DocumentPreview 渲染</text>
+    <rect x="606" y="68" width="214" height="40" rx="10" fill="#ffffff" opacity=".16"/>
+    <text x="713" y="86" text-anchor="middle" fill="#fff" font-size="11.5">MarkdownPreview（react-markdown）</text>
+    <text x="713" y="102" text-anchor="middle" fill="#d1fae5" font-size="11.5">CodePreview（语法高亮）</text>
+    <rect x="606" y="116" width="214" height="40" rx="10" fill="#ffffff" opacity=".16"/>
+    <text x="713" y="134" text-anchor="middle" fill="#fff" font-size="11.5">PDFPreview（base64 分页图）</text>
+    <text x="713" y="150" text-anchor="middle" fill="#d1fae5" font-size="11.5">fitz 渲染 dpi=120</text>
+    <rect x="606" y="164" width="214" height="40" rx="10" fill="#ffffff" opacity=".16"/>
+    <text x="713" y="182" text-anchor="middle" fill="#fff" font-size="11.5">ImagePreview（点击放大）</text>
+    <text x="713" y="198" text-anchor="middle" fill="#d1fae5" font-size="11.5">yet-another-react-lightbox 灯箱</text>
+    <rect x="606" y="214" width="214" height="46" rx="10" fill="#ffffff" opacity=".16"/>
+    <text x="713" y="234" text-anchor="middle" fill="#fff" font-size="11.5">只读预览 · 文件改动走上传</text>
+    <text x="713" y="252" text-anchor="middle" fill="#d1fae5" font-size="11.5">后端不落临时文件</text>
+  </g>
+</svg>
+<div class="fig-cap">云空间三块：左侧文件树（搜索递归过滤）→ 中间 REST 服务 → 右侧按类型分发的只读预览。</div>
+</div>
+</section>
+
+<section id="parsing">
+<h2>文档解析：多格式提取</h2>
+<p>解析器 <code>backend/app/knowledge/parser.py</code> 提供统一的 <code>DocumentParser.parse(file_path, mime_type)</code> 入口，按扩展名分派到四个解析器，产出统一的 <code>ParsedDocument(content, metadata, page_contents)</code>：</p>
+
+<table>
+  <thead><tr><th>格式</th><th>依赖库</th><th>实现函数</th><th>要点</th></tr></thead>
+  <tbody>
+    <tr><td>Markdown / 文本 / 代码</td><td>标准库</td><td><code>_parse_text()</code></td><td><code>utf-8</code> 读取，<code>errors="replace"</code> 兜底乱码；代码文件也能进知识库</td></tr>
+    <tr><td>PDF</td><td><code>pymupdf</code>（fitz）</td><td><code>_parse_pdf()</code></td><td>逐页 <code>page.get_text()</code>，保留 <code>page_contents</code>（按页粒度），metadata 记 <code>page_count</code></td></tr>
+    <tr><td>DOCX</td><td><code>python-docx</code></td><td><code>_parse_docx()</code></td><td>提取非空段落 <code>p.text</code>，metadata 记 <code>paragraph_count</code></td></tr>
+    <tr><td>HTML</td><td><code>beautifulsoup4</code></td><td><code>_parse_html()</code></td><td>先 <code>decompose()</code> 掉 <code>script/style</code>，再 <code>get_text(separator="\n")</code> 并清洗空行</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">设计取舍：解析器返回<strong>纯文本 + 结构化 metadata</strong>，不保留排版 —— 对 RAG 检索来说"语义"比"样式"重要；分页信息（PDF）单独存 <code>page_contents</code>，为未来"按页引用"留了扩展位。</div>
+</section>
+
+<section id="chunking">
+<h2>分块策略与调参</h2>
+<p>一个文档常常几千字，不能整体向量化（超限、语义被稀释），必须切成<strong>有独立语义的小块</strong>。分块器 <code>backend/app/knowledge/chunker.py</code> 提供三种策略（<code>TextChunker(strategy, chunk_size=512, overlap=128, separator="\n\n")</code>）：</p>
+
+<h3>三种策略的差异</h3>
+<table>
+  <thead><tr><th>策略</th><th>原理</th><th>典型场景</th><th>弱点</th></tr></thead>
+  <tbody>
+    <tr><td><code>fixed</code> 固定长度</td><td>滑动窗口：<code>step = chunk_size - overlap</code>，从 0 开始等长切</td><td>无结构文档、快速验证</td><td>可能从句子中间切断，语义断裂</td></tr>
+    <tr><td><code>recursive</code> 递归切分</td><td>分隔符级联：<code>\n\n → \n → 。 → ！ → ？ → . → 空格 → 字符</code>，逐层降级，单块过长再递归</td><td>通用文本（默认策略）</td><td>对 Markdown 标题结构无感知</td></tr>
+    <tr><td><code>markdown</code> 标题层级</td><td>正则 <code>^(#{1,3}\s+.+)$</code> 找标题，以标题为边界切块，保留标题行</td><td>结构化文档（README / 手册）</td><td>无标题时回退 recursive</td></tr>
+    <tr><td><code>semantic</code> 语义分块</td><td>占位实现，目前回退 recursive</td><td>（规划中）</td><td>真正的语义分块需要 Embedding，留作扩展点</td></tr>
+  </tbody>
+</table>
+
+<h3>调参直觉（chunk_size / chunk_overlap）</h3>
+<ul>
+  <li><strong>chunk_size 太大</strong>（如 2048）：单块信息多但语义杂，检索精度下降，还可能塞爆上下文。</li>
+  <li><strong>chunk_size 太小</strong>（如 128）：上下文碎片化，检索到的片段"答不全"。</li>
+  <li><strong>chunk_overlap 的作用</strong>：两块之间保留尾部 <code>overlap</code> 字符（recursive 是 <code>buffer[-overlap:]</code>），避免一句话被硬生生切成两半导致两边都"读不懂"。</li>
+  <li>RAG 实验室里两者的滑块范围是 <code>chunk_size 256-2048</code>、<code>chunk_overlap 0-256</code>，可以实时对比检索效果。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三种分块策略对比">
+  <defs>
+    <linearGradient id="rc1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="rc2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="rc3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="rcr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="22" width="150" height="286" rx="14" fill="url(#rc1)"/>
+    <text x="95" y="92" text-anchor="middle" fill="#fff" font-size="13" font-weight="700" transform="rotate(-90 95 92)">fixed · 固定长度</text>
+    <rect x="186" y="30" width="630" height="66" rx="12" fill="#eef0fb" stroke="#d9def7"/>
+    <text x="501" y="52" text-anchor="middle" fill="#3730a3" font-size="12" font-weight="600">文档正文（连续文本流）</text>
+    <rect x="210" y="66" width="150" height="24" rx="6" fill="url(#rc2)"/>
+    <text x="285" y="83" text-anchor="middle" fill="#fff" font-size="11">chunk 0（size=512）</text>
+    <rect x="352" y="66" width="150" height="24" rx="6" fill="#a5b4fc" opacity=".55"/>
+    <text x="427" y="83" text-anchor="middle" fill="#3730a3" font-size="10.5">overlap 128</text>
+    <rect x="494" y="66" width="150" height="24" rx="6" fill="url(#rc2)"/>
+    <text x="569" y="83" text-anchor="middle" fill="#fff" font-size="11">chunk 1（滑动 step=384）</text>
+    <text x="501" y="122" text-anchor="middle" fill="#8b8e96" font-size="11.5">step = chunk_size − overlap → 两两重叠，边界不丢上下文</text>
+    <rect x="20" y="142" width="150" height="76" rx="14" fill="url(#rc2)"/>
+    <text x="95" y="182" text-anchor="middle" fill="#fff" font-size="13" font-weight="700" transform="rotate(-90 95 182)">recursive · 递归切分</text>
+    <rect x="186" y="150" width="630" height="58" rx="12" fill="#eef0fb" stroke="#cfe6f5"/>
+    <rect x="204" y="160" width="140" height="38" rx="8" fill="url(#rc1)"/>
+    <text x="274" y="184" text-anchor="middle" fill="#fff" font-size="11">段落①（\n\n 切）</text>
+    <rect x="360" y="160" width="140" height="38" rx="8" fill="url(#rc3)"/>
+    <text x="430" y="184" text-anchor="middle" fill="#fff" font-size="11">句子②（。切）</text>
+    <rect x="516" y="160" width="140" height="38" rx="8" fill="url(#rc3)"/>
+    <text x="586" y="184" text-anchor="middle" fill="#fff" font-size="11">句子③（。切）</text>
+    <rect x="672" y="160" width="126" height="38" rx="8" fill="url(#rc1)"/>
+    <text x="735" y="184" text-anchor="middle" fill="#fff" font-size="11">超长→递归降级</text>
+    <text x="501" y="224" text-anchor="middle" fill="#8b8e96" font-size="11.5">先按大分隔符凑块，装不下再换更细的分隔符递归切</text>
+    <rect x="20" y="262" width="150" height="46" rx="14" fill="url(#rc3)"/>
+    <text x="95" y="288" text-anchor="middle" fill="#fff" font-size="13" font-weight="700" transform="rotate(-90 95 288)">markdown · 标题切分</text>
+    <rect x="186" y="262" width="630" height="54" rx="12" fill="#eef0fb" stroke="#c8ecd6"/>
+    <rect x="204" y="272" width="180" height="34" rx="8" fill="url(#rc2)"/>
+    <text x="294" y="295" text-anchor="middle" fill="#fff" font-size="11"># 简介（标题+正文）</text>
+    <rect x="400" y="272" width="180" height="34" rx="8" fill="url(#rc2)"/>
+    <text x="490" y="295" text-anchor="middle" fill="#fff" font-size="11">## 安装（标题+正文）</text>
+    <rect x="596" y="272" width="180" height="34" rx="8" fill="url(#rc2)"/>
+    <text x="686" y="295" text-anchor="middle" fill="#fff" font-size="11">## 用法（标题+正文）</text>
+  </g>
+</svg>
+<div class="fig-cap">三种分块策略的切分直觉：fixed 滑动窗口重叠、recursive 分隔符级联降级、markdown 以标题为天然边界。</div>
+</div>
+</section>
+
+<section id="embedding">
+<h2>Embedding 适配：千问 DashScope</h2>
+<p>Embedding 把"文本"变成"向量"（语义坐标），让相似文本在向量空间里距离更近。本项目默认使用<strong>千问 DashScope 向量模型 <code>qwen3.7-text-embedding</code></strong>（1024 维），适配层在 <code>backend/app/knowledge/embedding_provider.py</code>，抽象基类 <code>EmbeddingProvider</code> 只要求两个方法：<code>embed(texts) -> List[List[float]]</code> 与 <code>dimensions()</code>。</p>
+
+<h3>与 OpenAI 格式的差异（重点）</h3>
+<table>
+  <thead><tr><th>维度</th><th>OpenAI 兼容格式</th><th>DashScope 格式（本项目默认）</th></tr></thead>
+  <tbody>
+    <tr><td>请求体</td><td><code>{"model": m, "input": ["t1","t2"]}</code></td><td><code>{"model": m, "input": {"texts": ["t1","t2"]}}</code> —— <code>input</code> 是对象不是数组！</td></tr>
+    <tr><td>响应</td><td><code>resp.data[]</code> 顺序与入参一致</td><td><code>output.embeddings[]</code> 带 <code>text_index</code> 字段，<strong>必须按 text_index 排序</strong></td></tr>
+    <tr><td>URL</td><td><code>POST /v1/embeddings</code></td><td><code>POST /api/v1/services/embeddings/text-embedding/text-embedding</code>（专用服务端点）</td></tr>
+    <tr><td>维度</td><td>1536 / 3072 等</td><td>1024（<code>DashScopeEmbeddingProvider.dimensions()</code> 固定返回）</td></tr>
+  </tbody>
+</table>
+<p>正因为格式不同，<code>_is_dashscope_model()</code> 通过 <code>provider == "dashscope"</code>、<code>"dashscope" in base_url</code>、<code>"qwen" in model_name</code> 三路判定走哪条实现（见 <code>backend/app/knowledge/indexer.py</code>）。</p>
+
+<h3>URL 拼接与自动分批</h3>
+<pre><code># DashScopeEmbeddingProvider.__init__（embedding_provider.py）
+if self.base_url.endswith("/api/v1"):
+    self.api_url = f"{self.base_url}/services/embeddings/text-embedding/text-embedding"
+else:
+    self.api_url = f"{self.base_url}/api/v1/services/embeddings/text-embedding/text-embedding"
+
+# embed()：自动分批 25 条/次，响应按 text_index 排序后拼接
+batch_size = 25
+for i in range(0, len(texts), batch_size):
+    ...
+    embs = sorted(data["output"]["embeddings"], key=lambda x: x["text_index"])
+    all_embeddings.extend([e["embedding"] for e in embs])</code></pre>
+<div class="warn">这是踩过的坑：<strong>URL 双 <code>/api/v1</code> 会 404</strong>。如果模型配置里的 base_url 已经带了 <code>/api/v1</code>（很多 DashScope 教程这么配），再拼一次 <code>/api/v1/services/...</code> 就变成 404。这里用 <code>endswith("/api/v1")</code> 判断，避免重复拼接 —— 这也是 11 · 模型配置中心里"测试连接双路径"要处理同一问题。</div>
+
+<h3>Local 哈希 fallback</h3>
+<p>没有配置任何 Embedding 模型 / 密钥时，<code>_get_embedding_provider()</code> 会回退到 <code>LocalEmbeddingProvider</code>：把文本分词后按 <code>md5(token) % dim</code> 投到 256 维稀疏向量并归一化。它<strong>没有语义</strong>，但能让整条 RAG 链路在没有外部 API 的情况下跑通（学习/演示模式），替换成真实模型时无需改任何调用方代码 —— 这就是抽象基类 <code>EmbeddingProvider</code> 的价值。</p>
+</section>
+
+<section id="retrieval">
+<h2>检索：向量 / 关键词 / 混合 RRF</h2>
+<p>检索器 <code>backend/app/knowledge/retriever.py</code> 提供三种模式（<code>retrieval_mode: vector | keyword | hybrid</code>），统一返回 <code>RetrievalResult(chunk_id, content, file_name, file_path, score, chunk_index, document_id)</code>。</p>
+
+<h3>三种检索方式</h3>
+<table>
+  <thead><tr><th>模式</th><th>实现</th><th>评分</th><th>强项 / 弱项</th></tr></thead>
+  <tbody>
+    <tr><td><code>vector</code> 向量</td><td><code>_vector_search()</code>：query 向量化 → ChromaDB <code>collection.query</code>（n = k×2 多取候选）</td><td>余弦距离转相似度：<code>score = max(0, 1 - dist)</code></td><td>理解语义同义改写；但对精确术语（型号/代码）不敏感</td></tr>
+    <tr><td><code>keyword</code> 关键词</td><td><code>_keyword_search()</code>：<code>collection.get(limit=2000)</code> 拉候选 → 词频打分（BM25 近似）</td><td>命中词数归一化：<code>min(1.0, 命中数 / 词数)</code></td><td>精确匹配强；但召回粗（全库扫描 2000 条）</td></tr>
+    <tr><td><code>hybrid</code> 混合</td><td>两路各取 k×2 → <code>_rrf_fusion()</code> 融合</td><td>RRF：<code>score += 1 / (k + rank + 1)</code>（k=60），再按最大值归一化到 0..1</td><td>兼顾语义与精确匹配；业界标配</td></tr>
+  </tbody>
+</table>
+
+<h3>RRF 融合为什么有效</h3>
+<p>RRF（Reciprocal Rank Fusion）的核心思想：<strong>不看绝对分，看排名</strong>。同一片段在向量路排第 2、在关键词路排第 5，融合分就是 <code>1/(60+2) + 1/(60+5) ≈ 0.0169</code>；而只在单路排第 1 的片段只有 <code>1/61 ≈ 0.0164</code>。两路都靠前的片段一定赢 —— 因为它被两种信号同时认可。融合后 <code>score = 融合分 / max(融合分)</code> 归一化到 0..1，才能让 <code>score_threshold</code>（默认 0.5）正常工作。</p>
+
+<pre><code># _rrf_fusion()（retriever.py）
+k = 60
+for results in result_lists:
+    for rank, r in enumerate(results):
+        scores[r.chunk_id] = scores.get(r.chunk_id, 0.0) + 1.0 / (k + rank + 1)
+max_score = max(scores.values()) if scores else 1.0
+for cid, r in metas.items():
+    r.score = scores[cid] / max_score          # 归一化，阈值才有效
+return sorted(metas.values(), key=lambda x: x.score, reverse=True)</code></pre>
+
+<div class="fig">
+<svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三种检索模式对比">
+  <defs>
+    <linearGradient id="rd1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="rd2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="rd3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="rd4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="rdr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <text x="24" y="26" fill="#3730a3" font-size="13" font-weight="700">vector · 向量检索（语义相似）</text>
+    <rect x="24" y="36" width="150" height="52" rx="12" fill="url(#rd1)"/>
+    <text x="99" y="58" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">问题向量化</text>
+    <text x="99" y="76" text-anchor="middle" fill="#eef0fb" font-size="11">qwen3.7 · 1024 维</text>
+    <path d="M174 62 L206 62" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rdr)"/>
+    <rect x="214" y="36" width="200" height="52" rx="12" fill="url(#rd2)"/>
+    <text x="314" y="58" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">cosine 相似度检索</text>
+    <text x="314" y="76" text-anchor="middle" fill="#e0f2fe" font-size="11">ChromaDB query · n=k×2</text>
+    <path d="M414 62 L446 62" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rdr)"/>
+    <rect x="454" y="36" width="180" height="52" rx="12" fill="url(#rd3)"/>
+    <text x="544" y="58" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">score = 1 − 距离</text>
+    <text x="544" y="76" text-anchor="middle" fill="#fef3c7" font-size="11">≥ score_threshold 保留</text>
+    <text x="24" y="120" fill="#3730a3" font-size="13" font-weight="700">keyword · 关键词检索（精确匹配）</text>
+    <rect x="24" y="130" width="150" height="52" rx="12" fill="url(#rd1)"/>
+    <text x="99" y="152" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">问题分词</text>
+    <text x="99" y="170" text-anchor="middle" fill="#eef0fb" font-size="11">正则 [\w\u4e00-\u9fff]+</text>
+    <path d="M174 156 L206 156" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rdr)"/>
+    <rect x="214" y="130" width="200" height="52" rx="12" fill="url(#rd2)"/>
+    <text x="314" y="152" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">全库词频统计</text>
+    <text x="314" y="170" text-anchor="middle" fill="#e0f2fe" font-size="11">get(limit=2000) · 命中计数</text>
+    <path d="M414 156 L446 156" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rdr)"/>
+    <rect x="454" y="130" width="180" height="52" rx="12" fill="url(#rd3)"/>
+    <text x="544" y="152" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">score = 命中 / 词数</text>
+    <text x="544" y="170" text-anchor="middle" fill="#fef3c7" font-size="11">归一化到 0..1</text>
+    <text x="24" y="214" fill="#3730a3" font-size="13" font-weight="700">hybrid · 混合检索（RRF 融合）</text>
+    <rect x="24" y="224" width="150" height="52" rx="12" fill="url(#rd1)"/>
+    <text x="99" y="246" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">向量路 top-k</text>
+    <text x="99" y="264" text-anchor="middle" fill="#eef0fb" font-size="11">按排名贡献分</text>
+    <rect x="24" y="284" width="150" height="44" rx="12" fill="url(#rd2)"/>
+    <text x="99" y="309" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">关键词路 top-k</text>
+    <path d="M174 250 L232 250 M174 306 L232 306" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rdr)"/>
+    <rect x="240" y="224" width="230" height="104" rx="14" fill="url(#rd4)"/>
+    <text x="355" y="252" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">RRF 融合（k=60）</text>
+    <text x="355" y="274" text-anchor="middle" fill="#d1fae5" font-size="11">score += 1 / (k + rank + 1)</text>
+    <text x="355" y="294" text-anchor="middle" fill="#d1fae5" font-size="11">两路都靠前的片段获胜</text>
+    <text x="355" y="314" text-anchor="middle" fill="#d1fae5" font-size="11">除以最大值归一化</text>
+    <path d="M470 276 L522 276" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rdr)"/>
+    <rect x="530" y="224" width="306" height="104" rx="14" fill="#475569"/>
+    <text x="683" y="252" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">最终 top-k（按融合分排序）</text>
+    <rect x="546" y="262" width="274" height="24" rx="7" fill="#ffffff" opacity=".14"/>
+    <text x="683" y="279" text-anchor="middle" fill="#e2e8f0" font-size="11">过滤 score_threshold → 可选 rerank 加分</text>
+    <rect x="546" y="292" width="274" height="24" rx="7" fill="#ffffff" opacity=".14"/>
+    <text x="683" y="309" text-anchor="middle" fill="#e2e8f0" font-size="11">[文档片段 N] 来源: 文件名 (路径)</text>
+  </g>
+</svg>
+<div class="fig-cap">三种检索模式：向量看语义、关键词看精确、混合用 RRF 融合两路排名，再统一阈值过滤。</div>
+</div>
+
+<div class="tip">另外还有一个可选开关 <code>rerank_enabled</code>：<code>_simple_rerank()</code> 会在融合后按"关键词命中密度"给片段 <code>+0.05 × hits</code> 的加分（封顶 1.0）再重排 —— 这是"轻量 Rerank"的教学替代品，真正生产级会用 Cohere/Jina 的交叉编码器 Rerank 模型。</div>
+</section>
+
+<section id="chroma">
+<h2>ChromaDB 索引管理</h2>
+<p>向量库选型 <strong>ChromaDB</strong>（嵌入式 PersistentClient），持久化目录 <code>data/memory</code>，集合名 <code>knowledge_chunks</code>，距离度量 <code>{"hnsw:space": "cosine"}</code>。索引器 <code>backend/app/knowledge/indexer.py</code> 负责增删改查与全量重建。</p>
+
+<h3>写入一条文档的完整流程（index_file）</h3>
+<ol>
+  <li>生成 <code>doc_id = "doc_" + uuid4().hex[:12]</code>，先插入 <code>KnowledgeDocument</code> 行（status=<code>indexing</code>）。</li>
+  <li><code>parser.parse()</code> 提取全文 → <code>chunker.chunk()</code> 切块。</li>
+  <li><code>provider.embed(texts)</code> 批量向量化（DashScope 自动分批 25）。</li>
+  <li>每个 chunk 的 metadata 记录 <code>document_id / file_path / file_name / chunk_index / chunk_strategy / chunk_size / start_char / end_char</code> —— 检索结果的"来源"全靠这些字段。</li>
+  <li>ChromaDB <code>collection.add()</code> 每批 100 条写入；成功置 status=<code>indexed</code> + <code>chunk_count</code>，异常置 <code>failed</code> + <code>error_message[:500]</code>。</li>
+</ol>
+
+<h3>删除与全量重建</h3>
+<ul>
+  <li><code>delete_document(doc_id)</code>：<code>collection.delete(where={"document_id": doc_id})</code> 删向量 + 删 <code>knowledge_documents</code> 行。</li>
+  <li><code>delete_by_path(relative_path)</code>：按 <code>file_path</code> 查到 doc 再删 —— 云空间删除文件时自动调用。</li>
+  <li><code>reindex-all</code>（<code>/api/knowledge/reindex-all</code>）：<strong>先 <code>client.delete_collection()</code> 整个集合删掉重建</strong>（换分块参数后旧 chunk 全作废），再清空 <code>knowledge_documents</code> 表，最后遍历云空间把支持的扩展名（md/txt/pdf/docx/html）逐个重新索引。这是 RAG 实验室"重新索引全部"按钮的后端实现。</li>
+</ul>
+
+<h3>knowledge_documents 表</h3>
+<p>定义在 <code>backend/app/models/__init__.py</code> 的 <code>KnowledgeDocument</code>：<code>file_path</code>（唯一）、<code>file_name</code>、<code>file_size</code>、<code>mime_type</code>、<code>chunk_count</code>、<code>status</code>（pending/indexing/indexed/failed/outdated）、<code>error_message</code>、<code>last_indexed_at</code>。它是"文档 ↔ 向量"的登记表，<code>get_stats()</code> 据此统计已索引/失败/总 chunk 数。</p>
+<div class="warn">局限提示：目前是"全量重建"式更新 —— 没有做增量 diff（文件改了只重索引这一个）。换参数后的 reindex-all 在大知识库上会比较慢，这是生产化时要优化的点（按 mtime 增量）。</div>
+</section>
+
+<section id="agent-integration">
+<h2>Agent 集成与引用溯源</h2>
+<p>RAG 的最后一公里：检索结果怎么喂给 AG2 Agent。入口在 <code>backend/app/main.py</code>，<strong>REST（/api/chat/send）与 WS（/ws 的 chat.send）两条路都支持</strong>，共用同一个 <code>KnowledgeScope</code> 协议：</p>
+
+<pre><code>class KnowledgeScope(BaseModel):
+    """Knowledge scope for RAG injection."""
+    mode: str = "auto"          # auto | selected
+    directory_ids: Optional[List[str]] = None</code></pre>
+
+<h3>检索与注入（_build_rag_context）</h3>
+<p><code>_build_rag_context(db, query, scope)</code> 做四件事：读 RAG 配置（<code>get_rag_settings</code>）→ 取 Embedding provider（<code>_get_embedding_provider</code>）→ 构造 <code>KnowledgeRetriever</code> → 按 scope 检索。其中 <code>mode == "selected"</code> 时用 <code>where_filter = {"file_path": {"$in": directory_ids}}</code> 把检索范围<strong>限定在指定目录</strong>（即"只在这批文档里找"）。</p>
+<pre><code># 片段拼接（main.py）
+parts.append(f"[文档片段 {i+1}] 来源: {r.file_name} ({r.file_path})\n{r.content}")
+# 注入模板
+user_message = (
+    f"请基于以下知识库上下文回答问题。如果上下文中没有相关信息，请说明。\n\n"
+    f"[知识库上下文]\n{rag_context}\n\n"
+    f"[用户问题]\n{message.content}"
+)</code></pre>
+
+<h3>引用溯源设计</h3>
+<ul>
+  <li>每个片段自带 <strong>[文档片段 N] 来源: 文件名 (相对路径)</strong> 前缀 —— 模型可以明确引用"根据文档片段 2"。</li>
+  <li>Prompt 明确要求"没有相关信息就说没有"，从机制上抑制编造。</li>
+  <li>前端 RAG 实验室的检索测试结果卡片直接展示 <code>file_name + file_path + score</code>，方便肉眼验证召回质量。</li>
+</ul>
+
+<div class="key">学习要点：这里体现了<strong>"协议先行"</strong>的思想 —— <code>knowledge_scope</code> 在 REST 与 WS 协议层都定义好了（前端 Composer 的 scope 选择器是产品层后续工作），后端链路已完全打通。</div>
+</section>
+
+<section id="rag-lab">
+<h2>RAG 实验室：可视化调参</h2>
+<p>为了让"调参"看得见摸得着，前端 <code>frontend/src/components/workspace/rag-lab/RAGLabPage.tsx</code> 把整条链路的旋钮全部暴露出来，后端由 settings API 承载：</p>
+
+<h3>settings API（backend/app/settings/router.py）</h3>
+<pre><code>GET /api/settings/rag      # 读取当前 RAG 配置（get_rag_settings）
+PUT /api/settings/rag      # 保存配置（update_rag_settings，单行表 rag_settings）</code></pre>
+<p>配置项：<code>chunk_strategy / chunk_size / chunk_overlap / separator / retrieval_mode / top_k / score_threshold / rerank_enabled / rerank_top_n / embedding_model_id</code>。存 SQLite 单行表 <code>rag_settings</code>（id=1），重启不丢。</p>
+
+<h3>实验室的三个面板</h3>
+<table>
+  <thead><tr><th>面板</th><th>控件</th><th>后端接口</th></tr></thead>
+  <tbody>
+    <tr><td>Embedding 配置</td><td>默认 Embedding 模型下拉（来自 <code>/api/models?model_type=embedding</code>），显示向量维度</td><td>GET /api/models</td></tr>
+    <tr><td>分块策略</td><td>fixed/recursive/markdown 按钮 + chunk_size 滑块（256-2048）+ overlap 滑块（0-256）+ 分隔符下拉</td><td>GET/PUT /api/settings/rag</td></tr>
+    <tr><td>检索策略</td><td>vector/keyword/hybrid 按钮 + top_k（3-20）+ score_threshold（0-1）+ rerank 开关与 Top-N</td><td>GET/PUT /api/settings/rag</td></tr>
+    <tr><td>检索测试</td><td>输入问题 → 展示召回片段（#序号 · 文件名 · score · 内容 · 来源路径）</td><td>POST /api/knowledge/query</td></tr>
+  </tbody>
+</table>
+
+<h3>调参闭环</h3>
+<div class="fig">
+<svg viewBox="0 0 860 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RAG 实验室调参闭环">
+  <defs>
+    <linearGradient id="re1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="re2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="re3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="rer" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 L2.4 5 Z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="24" y="60" width="150" height="110" rx="14" fill="url(#re1)"/>
+    <text x="99" y="92" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">① 调整参数</text>
+    <text x="99" y="114" text-anchor="middle" fill="#eef0fb" font-size="11">RAGLabPage 滑块</text>
+    <text x="99" y="132" text-anchor="middle" fill="#eef0fb" font-size="11">分块 / 检索 / 阈值</text>
+    <text x="99" y="150" text-anchor="middle" fill="#eef0fb" font-size="11">实时可视化</text>
+    <path d="M174 115 L206 115" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rer)"/>
+    <rect x="214" y="60" width="150" height="110" rx="14" fill="url(#re2)"/>
+    <text x="289" y="92" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">② 保存配置</text>
+    <text x="289" y="114" text-anchor="middle" fill="#e0f2fe" font-size="11">PUT /api/settings/rag</text>
+    <text x="289" y="132" text-anchor="middle" fill="#e0f2fe" font-size="11">写入 rag_settings 表</text>
+    <path d="M364 115 L396 115" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rer)"/>
+    <rect x="404" y="60" width="170" height="110" rx="14" fill="url(#re3)"/>
+    <text x="489" y="92" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">③ 重新索引</text>
+    <text x="489" y="114" text-anchor="middle" fill="#d1fae5" font-size="11">POST reindex-all</text>
+    <text x="489" y="132" text-anchor="middle" fill="#d1fae5" font-size="11">delete_collection 重建</text>
+    <path d="M574 115 L606 115" stroke="#8b93e8" stroke-width="2.5" fill="none" marker-end="url(#rer)"/>
+    <rect x="614" y="60" width="150" height="110" rx="14" fill="url(#re2)"/>
+    <text x="689" y="92" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">④ 检索测试</text>
+    <text x="689" y="114" text-anchor="middle" fill="#e0f2fe" font-size="11">POST /api/knowledge/query</text>
+    <text x="689" y="132" text-anchor="middle" fill="#e0f2fe" font-size="11">实时打分 + 来源</text>
+    <path d="M689 170 C689 208 99 208 99 178" stroke="#f59e0b" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#rer)"/>
+    <text x="394" y="222" text-anchor="middle" fill="#8b8e96" font-size="12">⑤ 观察召回效果 → 回到 ① 继续调（实验闭环）</text>
+    <text x="394" y="34" text-anchor="middle" fill="#3730a3" font-size="13.5" font-weight="700">RAG 实验室：配置 → 索引 → 测试 → 观察的调参闭环</text>
+  </g>
+</svg>
+<div class="fig-cap">换任何参数（chunk_size / overlap / 检索模式 / 阈值）→ 保存 → 重新索引 → 测试 → 看召回打分，形成实验闭环。</div>
+</div>
+
+<div class="note">统计面板（已索引文档 / 总 chunk / 失败文档 / 总文档）来自 <code>GET /api/knowledge/stats</code>，配合 <code>GET /api/knowledge/documents</code> 可以逐文档看 chunk_count 与 status —— 索引失败的文件会带 error_message，方便排查（比如依赖库缺失）。</div>
+</section>
+
+<section id="scorecard">
+<h2>与业内对比评分</h2>
+<p>参照 <strong>LlamaIndex / LangChain RAG</strong> 生态（业界 RAG 的事实标准），按"个人学习项目目标"评分 1-5 星：</p>
+<table>
+  <thead><tr><th style="width:15%">维度</th><th>做了什么</th><th>业内参照</th><th style="width:13%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>解析覆盖</strong></td>
+      <td>Markdown/文本/代码 + PDF（pymupdf）+ DOCX（python-docx）+ HTML（BeautifulSoup），统一 ParsedDocument</td>
+      <td>LlamaIndex Readers / Unstructured</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>覆盖常用格式；缺扫描件 OCR、表格结构化提取、图片/音频理解</td>
+    </tr>
+    <tr>
+      <td><strong>分块策略</strong></td>
+      <td>fixed / recursive（分隔符级联降级）/ markdown（标题边界）+ overlap 调参</td>
+      <td>LangChain TextSplitter 家族</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>思路等价；缺 token 感知分块、Late Chunking、semantic 分块（当前是占位回退）</td>
+    </tr>
+    <tr>
+      <td><strong>检索模式</strong></td>
+      <td>向量（cosine）/ 关键词（BM25 近似）/ 混合（RRF k=60 + 归一化）+ 可选简单 Rerank</td>
+      <td>LlamaIndex / LangChain Retriever + BM25</td>
+      <td><span class="rating r-4">3.6 ★</span></td>
+      <td>RRF 融合真实；缺真 BM25（rank_bm25 库）、多路召回、交叉编码器 Rerank、自动模式选择</td>
+    </tr>
+    <tr>
+      <td><strong>调参可视化</strong></td>
+      <td>RAG 实验室全参数滑块 + 检索测试 + 索引统计面板</td>
+      <td>Dify / FastGPT 知识库 UI</td>
+      <td><span class="rating r-5">4.3 ★</span></td>
+      <td>可视化是亮点（学习项目里少见）；缺 A/B 对比、参数历史、检索结果 diff 视图</td>
+    </tr>
+    <tr>
+      <td><strong>引用溯源</strong></td>
+      <td>[文档片段 N] 来源: 文件名 (路径) 注入 Prompt，测试卡片展示来源</td>
+      <td>GPTs 引用 / 企业 RAG 溯源</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>机制到位；缺引用可信度分级、一键跳转原文定位（start_char/end_char 已存，UI 未用）</td>
+    </tr>
+    <tr>
+      <td><strong>评估</strong></td>
+      <td>人工在实验室里肉眼验证召回质量</td>
+      <td>RAGAS / LlamaIndex Evaluation</td>
+      <td><span class="rating r-2">2.5 ★</span></td>
+      <td>最大短板：无评测集、无 Hit@k / MRR / 忠实度指标，无法量化"调参是否真的变好"</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note"><strong>总体：3.7 / 5.0</strong> —— 链路完整、可调参、可溯源，在"学习作品"里属于优秀；与生产级 RAG 的主要差距集中在<strong>评估体系</strong>（无指标）与<strong>索引增量更新</strong>（全量重建）。这也正是下一步最有学习价值的两个方向。</div>
+</section>
+
+<section id="code-guide">
+<h2>代码导读</h2>
+<p>建议按"数据流"顺序阅读，每条链路都从入口读到出口：</p>
+<table>
+  <thead><tr><th>学习点</th><th>关键文件</th><th>关键函数 / 符号</th></tr></thead>
+  <tbody>
+    <tr><td>文件 CRUD 与安全</td><td><code>backend/app/cloud_space/file_service.py</code></td><td><code>_resolve_path()</code>（穿越防护）、<code>build_tree()</code>、<code>delete_path()</code></td></tr>
+    <tr><td>文件 REST API</td><td><code>backend/app/cloud_space/router.py</code></td><td><code>_safe_path()</code>、<code>delete_file()</code>（联动清理索引）</td></tr>
+    <tr><td>多格式预览</td><td><code>backend/app/cloud_space/preview_service.py</code></td><td><code>preview_file()</code>、<code>_preview_pdf()</code>（fitz 分页 PNG）</td></tr>
+    <tr><td>文档解析</td><td><code>backend/app/knowledge/parser.py</code></td><td><code>DocumentParser.parse()</code>、<code>_parse_pdf/_parse_docx/_parse_html</code></td></tr>
+    <tr><td>分块策略</td><td><code>backend/app/knowledge/chunker.py</code></td><td><code>TextChunker.chunk()</code>、<code>_fixed_chunk / _recursive_chunk / _markdown_chunk</code></td></tr>
+    <tr><td>Embedding 适配</td><td><code>backend/app/knowledge/embedding_provider.py</code></td><td><code>DashScopeEmbeddingProvider.embed()</code>（分批 25 + text_index 排序）、<code>LocalEmbeddingProvider._hash_embed()</code></td></tr>
+    <tr><td>索引写入</td><td><code>backend/app/knowledge/indexer.py</code></td><td><code>KnowledgeIndexer.index_file()</code>、<code>_get_embedding_provider()</code>、<code>_is_dashscope_model()</code></td></tr>
+    <tr><td>检索与 RRF</td><td><code>backend/app/knowledge/retriever.py</code></td><td><code>retrieve()</code>、<code>_vector_search / _keyword_search</code>、<code>_rrf_fusion()</code>（k=60）</td></tr>
+    <tr><td>RAG 配置</td><td><code>backend/app/knowledge/rag_config.py</code> · <code>backend/app/settings/router.py</code></td><td><code>get_rag_settings() / update_rag_settings()</code>、GET/PUT <code>/api/settings/rag</code></td></tr>
+    <tr><td>知识库 API</td><td><code>backend/app/knowledge/router.py</code></td><td><code>index_path()</code>（后台任务）、<code>reindex_all()</code>、<code>query_knowledge()</code></td></tr>
+    <tr><td>Agent 注入与溯源</td><td><code>backend/app/main.py</code></td><td><code>_build_rag_context()</code>、<code>KnowledgeScope</code>、/ws 的 <code>knowledge_scope</code> 分支</td></tr>
+    <tr><td>前端文件管理</td><td><code>frontend/src/components/workspace/cloud-space/CloudSpacePage.tsx</code></td><td><code>fetchTree()</code>、<code>filteredTree</code>（递归搜索）、<code>renderNode()</code></td></tr>
+    <tr><td>前端 RAG 实验室</td><td><code>frontend/src/components/workspace/rag-lab/RAGLabPage.tsx</code></td><td><code>handleSave / handleReindex / handleTest</code>、RangeInput 滑块</td></tr>
+  </tbody>
+</table>
+
+<div class="key">动手实验建议：① 在云空间上传一个 PDF → ② 打开 RAG 实验室选 markdown 分块 → ③ 重新索引 → ④ 输入问题测试检索 → ⑤ 把 chunk_size 从 512 调到 1024 再看召回差异 —— 你会直观感受到"分块粒度如何影响召回质量"。</div>
+</section>
+
+</main>
+</body>
+</html>

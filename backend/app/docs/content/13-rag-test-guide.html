@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="云空间 RAG 测试验证指南">
+<meta name="doc:category" content="测试验证">
+<meta name="doc:order" content="1">
+<meta name="doc:description" content="测试数据集构成（88 篇笔记 + 三格式对照 + 外部真实文档）、五类验证点、建议问法与预期结果、边缘用例说明">
+<meta name="doc:icon" content="flask-conical">
+<title>测试验证 · 云空间 RAG 测试验证指南</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.hero{background:linear-gradient(135deg,#5e6ad2,#7c5ed2);color:#fff;border-radius:18px;padding:28px 32px;margin-bottom:28px}
+.hero h1{color:#fff}
+.hero p{color:#e0e2f5;font-size:14.5px;margin-top:6px}
+.toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 22px;margin:20px 0}
+.toc a{display:block;padding:3px 0;font-size:14px}
+.badge{display:inline-block;font-size:12px;padding:1px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);margin-right:6px}
+</style>
+</head>
+<body>
+<div class="doc-body">
+
+<div class="hero">
+<h1>🧪 云空间 RAG 测试验证指南</h1>
+<p>2026-08-25 · 配套真实语义嵌入（qwen3.7-text-embedding, 1024 维）上线后的首轮 RAG 检索质量验证 · 数据已就位于 <code>backend/data/cloud-space/docs/</code></p>
+</div>
+
+<div class="key">本指南回答三个问题：<strong>用什么数据测</strong>、<strong>验证什么</strong>、<strong>怎么判断对错</strong>。数据集由三部分组成：内部笔记（内容熟悉，可精确判断检索对错）、三格式对照组（同一内容 × MD/DOCX/PDF，验证解析链路一致性）、外部真实文档（arXiv 论文 + 扫描件模拟，补真实世界压力）。</div>
+
+<h2 id="data">一、测试数据集构成</h2>
+
+<table>
+<tr><th>目录</th><th>内容</th><th>规模</th><th>用途</th></tr>
+<tr><td><code>学习笔记-MD/</code></td><td>语雀导出的个人技术笔记（AI-人工智能 78 篇 + Golang 10 篇），保持原目录结构</td><td>88 个 md / 约 15MB</td><td><strong>主力组</strong>：真语义嵌入下的检索质量验证（内容熟悉，对错一眼可判）</td></tr>
+<tr><td><code>格式对照测试/</code></td><td>3 个结构丰富文档 × MD/DOCX/PDF 三种格式：《Pydantic官方文档》《Kubernetes入门学习笔记》《Go面试题库》</td><td>9 个文件</td><td><strong>对照组</strong>：DOCX/PDF 解析链路 + 跨格式一致性实验</td></tr>
+<tr><td><code>外部真实文档/</code></td><td>arXiv 开放获取论文 2 篇（《RAG 综述》1.6M、《基于 LLM 的自主智能体综述》849K，双栏排版+公式+图表）+ 扫描件模拟 1 份（无文本层 PDF）</td><td>3 个 pdf</td><td><strong>压力组</strong>：真实世界版式解析 + 无文本层边缘降级</td></tr>
+</table>
+
+<div class="note">版权说明：arXiv 论文为开放获取；扫描件模拟为自制文件；学习笔记为用户本人所有。全部无版权风险。</div>
+
+<h3>格式对照组的设计意图</h3>
+<p>三个文档都是<strong>同一内容、三种格式</strong>。理想情况下，无论上传哪种格式，解析出的文本应基本一致 → 分块接近 → 检索表现接近。如果某个格式的检索明显偏差，就能精确定位是<strong>该格式的解析环节</strong>出了问题，而不是嵌入或检索的问题。</p>
+
+<h2 id="points">二、五类验证点</h2>
+
+<table>
+<tr><th>#</th><th>验证点</th><th>使用数据</th><th>通过标准</th></tr>
+<tr><td>V1</td><td><strong>基础语义检索</strong></td><td>学习笔记-MD 组</td><td>自然语言提问能命中正确笔记并给出正确答案</td></tr>
+<tr><td>V2</td><td><strong>换说法召回</strong>（同义改写）</td><td>学习笔记-MD 组</td><td>提问用词与原文不同但语义相同时仍能命中</td></tr>
+<tr><td>V3</td><td><strong>跨格式一致性</strong></td><td>格式对照测试组</td><td>同一问题分别指定 md/docx/pdf 版本作知识范围，答案一致或高度相近</td></tr>
+<tr><td>V4</td><td><strong>真实版式解析</strong></td><td>外部 arXiv 论文</td><td>双栏论文的关键概念可被检索到（如 "RAG 的三个范式是什么"）</td></tr>
+<tr><td>V5</td><td><strong>无文本层降级</strong>（边缘用例）</td><td>扫描件模拟.pdf</td><td>索引不崩溃：跳过该文件或给出明确错误提示，不影响其他文件</td></tr>
+</table>
+
+<h2 id="howto">三、操作步骤与建议问法</h2>
+
+<h3>3.1 触发索引</h3>
+<p>通过前端云空间界面上传/触发索引（此机制为本次体验回归的重点观察对象——此前从未实测过）。若界面支持按目录批量导入，优先导入 <code>学习笔记-MD/AI-人工智能</code> 整个目录。</p>
+
+<h3>3.2 建议问法清单（聊天时挂载对应知识范围）</h3>
+
+<table>
+<tr><th>问法</th><th>预期命中</th><th>验证点</th></tr>
+<tr><td>「Pydantic 怎么定义一个模型？」</td><td>《Pydantic官方文档》（三种格式任一）</td><td>V1/V3</td></tr>
+<tr><td>「Go 语言 channel 关闭后读取会发生什么？」</td><td>Golang 笔记相关章节</td><td>V1</td></tr>
+<tr><td>「K8s 里 Pod 和 Deployment 是什么关系？」</td><td>K8s 入门笔记</td><td>V1/V3</td></tr>
+<tr><td>「协程和线程的区别」（若已导入 Python 目录）</td><td>asyncio 相关笔记</td><td>V2</td></tr>
+<tr><td>「RAG 有哪几种范式？」</td><td>arXiv RAG 综述（Naive/Advanced/Modular 三阶段）</td><td>V4</td></tr>
+<tr><td>「智能体有哪些规划方式？」</td><td>Agent 综述相关章节</td><td>V4</td></tr>
+</table>
+
+<div class="tip">V2（换说法召回）是本轮升级的核心收益点：此前 hash 嵌入时代，查询换个说法相似度直接归零。现在例如笔记原文是「我喜欢喝美式咖啡」，问「用户偏好什么饮品」也应能召回。</div>
+
+<h3>3.3 判断结果时的注意事项</h3>
+<ul>
+<li>回答<strong>附带来源引用</strong>时，核对来源文件是否合理（张冠李戴 = 召回错）；</li>
+<li>回答错误时先区分两种情况：<strong>没检到</strong>（检索问题）vs <strong>检到了但答错</strong>（生成问题），前者才属于 RAG 验证范畴；</li>
+<li>长文档（如 Go面试题库 1.2MB）默认会被切成大量 chunk，若命中率低可先检查分块参数（<code>RagConfig</code> 的 chunk_size/top_k）。</li>
+</ul>
+
+<h2 id="edge">四、边缘用例与已知限制</h2>
+
+<div class="warn"><strong>扫描件模拟（无文本层 PDF）</strong>：该文件内页为纯图片渲染，pymupdf 提取文本长度为 0。预期行为是索引时被跳过或报明确错误。<strong>它不是 bug 用例而是健壮性用例</strong>——真正的 OCR 支持不在当前范围内。</div>
+
+<div class="tip"><strong>后续可选增强</strong>（见调研文档行动项④）：当出现「搜型号/编号搜不到」等信号时，再考虑 BM25+RRF 关键词层；Excel 表格场景暂不作为重点。</div>
+
+<h2 id="checklist">五、快速验收清单</h2>
+
+<pre><code>□ 上传/导入 学习笔记-MD/AI-人工智能 目录 → 索引成功，无报错
+□ 上传 格式对照测试/ 三个 docx → 解析成功
+□ 上传 格式对照测试/ 三个 pdf → 解析成功
+□ 上传 外部真实文档/ 两篇 arXiv → 解析成功
+□ 上传 扫描件模拟.pdf → 不崩溃（跳过或友好报错）
+□ 问「Pydantic 怎么定义模型」→ 命中并正确回答
+□ 同一问题分别挂载 md/docx/pdf 版本 → 答案一致
+□ 问「RAG 有哪几种范式」→ 能从 arXiv 论文中找到答案
+□ 记忆系统联动正常：聊过的事实换个说法能想起</code></pre>
+
+</div>
+</body>
+</html>

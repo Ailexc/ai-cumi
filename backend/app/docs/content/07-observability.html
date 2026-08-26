@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="可观测性">
+<meta name="doc:category" content="核心能力">
+<meta name="doc:order" content="7">
+<meta name="doc:description" content="Agent 执行追踪、Trace 事件模型、埋点位置、性能统计与前端追踪面板">
+<meta name="doc:icon" content="activity">
+<title>07 · 可观测性</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#why" class="doc-toc-h2">为什么要追踪 Agent 执行</a>
+  <a href="#model" class="doc-toc-h2">TracingSystem 事件模型</a>
+  <a href="#event" class="doc-toc-h3">TraceEventType 事件类型</a>
+  <a href="#lifecycle" class="doc-toc-h3">Trace 生命周期</a>
+  <a href="#points" class="doc-toc-h2">埋点位置：五类入口</a>
+  <a href="#stats" class="doc-toc-h2">性能统计：avg / p50 / p95 / max</a>
+  <a href="#frontend" class="doc-toc-h2">前端追踪面板</a>
+  <a href="#compare" class="doc-toc-h2">对比评分：LangSmith / Langfuse</a>
+  <a href="#code" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">📡</div>
+  <div>
+    <h1>可观测性</h1>
+    <div class="hero-meta">Agent 执行追踪 · Trace 事件模型 · 性能统计 · 前端追踪面板 ｜ 建议先读 04 · 工具调用</div>
+  </div>
+</div>
+
+<section id="why">
+<h2>为什么要追踪 Agent 执行</h2>
+<p>Agent 是一个<strong>黑盒</strong>：你发一句话，等几秒，收到一段回复。但中间发生了什么？模型被调了几次？工具是否真的执行了？哪一步最慢？出错了到底错在哪？——如果这些不可见，<strong>出了问题就只能靠猜</strong>。</p>
+
+<div class="card">
+  <h4>一次普通回复背后可能发生的事</h4>
+  <ul style="margin:8px 0 0">
+    <li>检索长期记忆（<code>memory_query</code>）——可能慢，可能返回一堆无关内容</li>
+    <li>调用大模型（<code>model_call</code>）——可能超时、重试、流式中断</li>
+    <li>执行工具（<code>tool_call</code>）——可能抛异常、返回脏数据</li>
+    <li>多轮 Agent 循环——同一回复可能多次模型调用</li>
+  </ul>
+</div>
+
+<p>业界早有共识：<strong>LangSmith / Langfuse / AgentOps 等可观测平台的立身之本，就是把这些"看不见的执行"变成"看得见的 Trace 链"</strong>——一次请求生成一条 Trace，Trace 里挂一串带耗时的事件，前端可视化回放。AiCumi 的 <code>TracingSystem</code> 以学习级规模复刻了这套模型：</p>
+
+<ul>
+  <li><strong>事件全记录</strong>：agent / tool / model / memory / error 五类事件，每件带时间戳与耗时。</li>
+  <li><strong>Trace 生命周期</strong>：一次执行一个 Trace（start → 事件流 → end），可回查。</li>
+  <li><strong>实时推送</strong>：事件通过 WS <code>trace.event</code> 实时推到前端面板，边跑边看。</li>
+  <li><strong>性能统计</strong>：跨 Trace 聚合 avg / p50 / p95 / max、调用次数与错误率。</li>
+</ul>
+
+<div class="key">学习要点：可观测性的本质是<strong>「在关键路径上打点 + 用统一模型承载 + 让数据可查询可视化」</strong>。理解 Trace/Event/Span 三元模型，就理解了 LangSmith 这类产品的骨架。</div>
+</section>
+
+<section id="model">
+<h2>TracingSystem 事件模型</h2>
+<p>核心实现 <code>backend/app/tracing/tracer.py</code>，三个数据类构成模型：<code>TraceEventType</code>（事件类型枚举）、<code>TraceEvent</code>（单条事件）、<code>Trace</code>（一次执行的容器）。全局单例 <code>tracing_system</code> 由 <code>backend/app/tracing/__init__.py</code> 导出。</p>
+
+<h3 id="event">TraceEventType 事件类型</h3>
+<table>
+  <thead><tr><th>事件类型</th><th>含义</th><th>当前接线状态</th></tr></thead>
+  <tbody>
+    <tr><td><code>agent_start / agent_end</code></td><td>Agent 执行开始 / 结束</td><td>枚举预留（DM 路径以 start/end trace 表达）</td></tr>
+    <tr><td><code>tool_call / tool_result</code></td><td>工具调用 / 工具返回</td><td><code>trace_tool_call()</code> 上下文管理器自动成对产出</td></tr>
+    <tr><td><code>model_call / model_response</code></td><td>模型请求 / 响应</td><td>DM 路径在真实模式下打 <code>model_call</code></td></tr>
+    <tr><td><code>memory_query / memory_add</code></td><td>记忆检索 / 记忆写入</td><td>DM 路径命中记忆时打 <code>memory_query</code></td></tr>
+    <tr><td><code>approval_request / approval_resolved</code></td><td>审批发起 / 解决</td><td>与 HITL 系统联动预留</td></tr>
+    <tr><td><code>error</code></td><td>执行异常</td><td>工具异常时带 <code>parent_id</code> 关联失败的工具事件</td></tr>
+    <tr><td><code>custom</code></td><td>自定义业务事件</td><td>扩展点，任意数据均可承载</td></tr>
+  </tbody>
+</table>
+
+<p><code>TraceEvent</code> 的关键字段是 <code>parent_id</code> 与 <code>duration_ms</code>：<code>parent_id</code> 把"工具调用 → 工具异常"这类从属关系串成树，<code>duration_ms</code> 让"哪一步慢"一目了然。</p>
+
+<h3 id="lifecycle">Trace 生命周期</h3>
+<div class="fig">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="一次执行的 Trace 事件链">
+  <defs>
+    <linearGradient id="o1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="o2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="o3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="o4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="o5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <marker id="oarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="18" width="820" height="58" rx="14" fill="url(#o1)"/>
+    <text x="430" y="44" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Trace · 一次流式回复（kind: dm_stream · agent: 可灵）</text>
+    <text x="430" y="64" text-anchor="middle" fill="#eef0fb" font-size="11.5">start_trace() → add_event() × N → end_trace() ｜ 总耗时 4200ms</text>
+    <!-- 事件卡 -->
+    <rect x="15" y="110" width="125" height="84" rx="13" fill="url(#o5)"/>
+    <text x="77" y="140" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">agent_start</text>
+    <text x="77" y="160" text-anchor="middle" fill="#f1f5f9" font-size="11">执行开始</text>
+    <text x="77" y="178" text-anchor="middle" fill="#f8fafc" font-size="10.5">0ms</text>
+    <path d="M150 152 C158 152 158 152 166 152" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#oarr)"/>
+    <rect x="176" y="110" width="125" height="84" rx="13" fill="url(#o2)"/>
+    <text x="238" y="140" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">memory_query</text>
+    <text x="238" y="160" text-anchor="middle" fill="#e0f2fe" font-size="11">检索 3 条记忆</text>
+    <text x="238" y="178" text-anchor="middle" fill="#e0f2fe" font-size="10.5">12ms</text>
+    <path d="M311 152 C319 152 319 152 327 152" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#oarr)"/>
+    <rect x="337" y="110" width="125" height="84" rx="13" fill="url(#o3)"/>
+    <text x="399" y="140" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">model_call</text>
+    <text x="399" y="160" text-anchor="middle" fill="#fef3c7" font-size="11">真实模式调用</text>
+    <text x="399" y="178" text-anchor="middle" fill="#fef3c7" font-size="10.5">3200ms ⏱</text>
+    <path d="M472 152 C480 152 480 152 488 152" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#oarr)"/>
+    <rect x="498" y="110" width="125" height="84" rx="13" fill="#7c3aed"/>
+    <text x="560" y="140" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">tool_call</text>
+    <text x="560" y="160" text-anchor="middle" fill="#ede9fe" font-size="11">web_search</text>
+    <text x="560" y="178" text-anchor="middle" fill="#ede9fe" font-size="10.5">850ms</text>
+    <path d="M633 152 C641 152 641 152 649 152" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#oarr)"/>
+    <rect x="659" y="110" width="125" height="84" rx="13" fill="url(#o4)"/>
+    <text x="721" y="140" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">tool_result</text>
+    <text x="721" y="160" text-anchor="middle" fill="#d1fae5" font-size="11">返回 5 条结果</text>
+    <text x="721" y="178" text-anchor="middle" fill="#d1fae5" font-size="10.5">1ms</text>
+    <path d="M794 152 C806 152 806 152 815 152" stroke="#8b8e96" stroke-width="2" fill="none" marker-end="url(#oarr)"/>
+    <rect x="825" y="110" width="15" height="84" rx="13" fill="#475569"/>
+    <!-- 泳道 -->
+    <line x1="40" y1="210" x2="820" y2="210" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <g font-size="11" fill="#8b8e96">
+      <text x="77" y="236" text-anchor="middle">agent</text>
+      <text x="238" y="236" text-anchor="middle">memory</text>
+      <text x="399" y="236" text-anchor="middle">model</text>
+      <text x="560" y="236" text-anchor="middle">tool</text>
+      <text x="721" y="236" text-anchor="middle">tool 返回</text>
+      <text x="430" y="262" text-anchor="middle">事件按时间顺序串成链，duration_ms 标出瓶颈 —— 本例模型调用占 76%</text>
+    </g>
+  </g>
+</svg>
+<div class="fig-cap">一条 Trace 的事件链：agent_start → memory_query → model_call → tool_call → tool_result。每条事件带耗时，瓶颈一眼可见。</div>
+</div>
+
+<pre><code># backend/app/tracing/tracer.py · 生命周期骨架
+trace = tracing_system.start_trace(agent_id, {"kind": "dm_stream", "message": msg[:200]})
+try:
+    await tracing_system.add_event(trace.id, TraceEventType.MEMORY_QUERY, agent_id, {...})
+    await tracing_system.add_event(trace.id, TraceEventType.MODEL_CALL, agent_id, {...})
+    ...
+finally:
+    tracing_system.end_trace(trace.id)   # 无论成败都收尾</code></pre>
+
+<p>每条事件最终序列化为这样的 JSON（<code>TraceEvent.to_dict()</code>），前端面板与 API 消费的是同一结构：</p>
+
+<pre><code>{
+  "id": "8f2a...",                       # 事件自身 id
+  "trace_id": "c1e9...",                 # 所属 Trace
+  "event_type": "tool_call",             # 事件类型
+  "agent_id": "keling",                  # 哪个员工
+  "timestamp": "2026-08-22T10:15:32.118",
+  "data": {"tool": "web_search", "params": {"query": "AG2 最新版本"}},
+  "parent_id": null,                     # 异常事件会指向父 tool_call
+  "duration_ms": 850.3                   # 该步骤耗时（毫秒）
+}</code></pre>
+
+<div class="tip">注意 <code>finally</code> 里的 <code>end_trace</code>：异常也要关闭 Trace，否则它会永远挂在"进行中"列表里。这个细节保证 <code>get_stats()</code> 的耗时样本不被泄漏的 Trace 污染。</div>
+</section>
+
+<section id="points">
+<h2>埋点位置：五类入口</h2>
+<p>埋点散落在 <code>backend/app/agents/agent_manager.py</code> 的 <code>send_message</code>（DM 非流式）与 <code>stream_message</code>（DM 流式）两个主入口，工具执行则有专门的上下文管理器。五类入口与落点：</p>
+
+<table>
+  <thead><tr><th>入口</th><th>埋点内容</th><th>代码位置</th></tr></thead>
+  <tbody>
+    <tr><td>DM 对话（非流式）</td><td><code>start_trace(kind=dm)</code> → 命中记忆打 <code>memory_query</code> → 真实模式打 <code>model_call</code> → <code>end_trace</code></td><td><code>agent_manager.send_message</code></td></tr>
+    <tr><td>DM 流式（WS）</td><td>同上，<code>kind=dm_stream</code>，记忆哨兵 <code>__MEMORY__</code> 前打 <code>memory_query</code></td><td><code>agent_manager.stream_message</code></td></tr>
+    <tr><td>群聊 / 路由</td><td>经 @路由后复用 DM 路径，同一套埋点</td><td><code>GroupChatManager</code> → 转发 <code>send_message</code></td></tr>
+    <tr><td>工具执行</td><td><code>trace_tool_call</code> 上下文管理器：进 → <code>tool_call</code>；出 → 写 <code>duration_ms</code>（即 <code>tool_result</code>）；异常 → <code>error</code>（带 <code>parent_id</code>）</td><td><code>tracing_system.trace_tool_call</code></td></tr>
+    <tr><td>记忆检索 / 写入</td><td><code>memory_query</code>（检索条数）/ <code>memory_add</code>（写入）</td><td>DM 路径随记忆链路触发</td></tr>
+  </tbody>
+</table>
+
+<div class="fig">
+<svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="埋点位置地图">
+  <defs>
+    <linearGradient id="p1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="p2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="p3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="p4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="parr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="30" width="150" height="90" rx="14" fill="url(#p1)"/>
+    <text x="95" y="64" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">前端 Web UI</text>
+    <text x="95" y="86" text-anchor="middle" fill="#eef0fb" font-size="11">chat.send / 流式</text>
+    <text x="95" y="102" text-anchor="middle" fill="#eef0fb" font-size="11">追踪面板</text>
+    <path d="M180 75 C200 75 200 75 220 75" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#parr)"/>
+    <!-- AgentManager 埋点层 -->
+    <rect x="230" y="30" width="300" height="250" rx="16" fill="url(#p2)"/>
+    <text x="380" y="58" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">AgentManager 埋点层</text>
+    <rect x="252" y="72" width="256" height="34" rx="9" fill="#ffffff" opacity=".18"/><text x="380" y="93" text-anchor="middle" fill="#fff" font-size="11.5">send_message → start/end_trace(kind=dm)</text>
+    <rect x="252" y="112" width="256" height="34" rx="9" fill="#ffffff" opacity=".18"/><text x="380" y="133" text-anchor="middle" fill="#fff" font-size="11.5">stream_message → start/end_trace(dm_stream)</text>
+    <rect x="252" y="152" width="256" height="34" rx="9" fill="#ffffff" opacity=".18"/><text x="380" y="173" text-anchor="middle" fill="#fff" font-size="11.5">记忆命中 → memory_query(count)</text>
+    <rect x="252" y="192" width="256" height="34" rx="9" fill="#ffffff" opacity=".18"/><text x="380" y="213" text-anchor="middle" fill="#fff" font-size="11.5">真实模式 → model_call(mode=real)</text>
+    <rect x="252" y="232" width="256" height="34" rx="9" fill="#ffffff" opacity=".18"/><text x="380" y="253" text-anchor="middle" fill="#fff" font-size="11.5">群聊路由 → 复用 DM 埋点</text>
+    <!-- TracingSystem -->
+    <rect x="580" y="30" width="260" height="170" rx="16" fill="url(#p3)"/>
+    <text x="710" y="58" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">TracingSystem</text>
+    <text x="710" y="82" text-anchor="middle" fill="#fef3c7" font-size="11.5">start_trace / add_event / end_trace</text>
+    <text x="710" y="102" text-anchor="middle" fill="#fef3c7" font-size="11.5">trace_tool_call(工具埋点)</text>
+    <text x="710" y="122" text-anchor="middle" fill="#fef3c7" font-size="11.5">trace.event → WS 实时推送</text>
+    <text x="710" y="146" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">工具执行：tool_call → tool_result</text>
+    <text x="710" y="164" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">异常 → error(parent_id)</text>
+    <path d="M545 110 C560 110 560 110 572 110" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#parr)"/>
+    <path d="M710 200 C710 220 710 220 710 232" stroke="#8b8e96" stroke-width="2.5" fill="none" stroke-dasharray="5 4" marker-end="url(#parr)"/>
+    <!-- 存储 -->
+    <rect x="580" y="240" width="260" height="40" rx="12" fill="#475569"/>
+    <text x="710" y="264" text-anchor="middle" fill="#e2e8f0" font-size="11.5">_traces（进行中）+ _completed_traces（最近 100 条）</text>
+    <path d="M95 120 C95 200 200 200 240 200" stroke="#8b8e96" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+    <text x="120" y="190" fill="#64748b" font-size="11">trace.event 实时回传</text>
+  </g>
+</svg>
+<div class="fig-cap">埋点地图：AgentManager 主路径负责开/关 Trace 与记忆/模型事件，工具执行用上下文管理器成对埋点，TracingSystem 统一存储并实时推送。</div>
+</div>
+
+<pre><code># backend/app/tracing/tracer.py · trace_tool_call（成对埋点 + 异常挂接）
+@asynccontextmanager
+async def trace_tool_call(self, trace_id, agent_id, tool_name, params):
+    start_time = time.time()
+    event = await self.add_event(trace_id, TraceEventType.TOOL_CALL, agent_id,
+                                 {"tool": tool_name, "params": params})
+    try:
+        yield event
+    except Exception as e:
+        await self.add_event(trace_id, TraceEventType.ERROR, agent_id,
+                             {"error": str(e), "tool": tool_name},
+                             parent_id=event.id if event else None)  # 挂到失败的调用上
+        raise
+    finally:
+        event.duration_ms = (time.time() - start_time) * 1000       # 返回即 tool_result</code></pre>
+
+<p>DM 主路径的接线同样直白——<code>send_message</code> 里开 Trace、按分支打事件、<code>finally</code> 收尾：</p>
+
+<pre><code># backend/app/agents/agent_manager.py · send_message 埋点（要点）
+trace = tracing_system.start_trace(agent_id, {"kind": "dm", "message": message[:200]})
+try:
+    if memories:                                   # 记忆命中才打点
+        await tracing_system.add_event(
+            trace.id, TraceEventType.MEMORY_QUERY, agent_id,
+            {"count": len(memories)},
+        )
+    if agent_info.get("mode") == "real" and self.agent_instances.get(agent_id):
+        await tracing_system.add_event(
+            trace.id, TraceEventType.MODEL_CALL, agent_id,
+            {"mode": "real", "message": message[:100]},
+        )
+        return await self._real_respond(agent_id, enriched)
+    return await self._mock_respond(agent_id, enriched)
+finally:
+    try:
+        tracing_system.end_trace(trace.id)
+    except Exception:
+        pass</code></pre>
+
+<div class="tip">埋点设计原则：<strong>事件按需打、数据裁剪</strong>——只打"有信息量"的事件（记忆命中才 <code>memory_query</code>，真实模式才 <code>model_call</code>），消息截断到前 100-200 字符。避免为每条消息塞满原始数据导致 Trace 膨胀。</div>
+</section>
+
+<section id="stats">
+<h2>性能统计：avg / p50 / p95 / max</h2>
+<p>单个 Trace 只回答"这次发生了什么"；<code>get_stats()</code> 回答"系统整体表现如何"。它把已完成 Trace 的耗时汇总成分布指标，并对全部事件做分类计数——这是把"日志"升级为"监控"的关键一步。</p>
+
+<pre><code># backend/app/tracing/tracer.py · get_stats 返回结构（要点）
+{
+  "active_traces": 2, "completed_traces": 46, "total_events": 318,
+  "response_time_ms": {          # 已完成 Trace 的端到端耗时分布
+    "avg": 4120.5, "p50": 3980.0, "p95": 8120.3, "max": 15302.1,
+    "sample_count": 46,
+  },
+  "calls": {"model_calls": 52, "tool_calls": 31, "memory_queries": 44},
+  "errors": {"error_events": 3, "error_rate": 0.94},   # 错误事件 / 总事件
+  "agents": { ... },             # 按 agent 聚合：trace 数、调用数、平均耗时
+}</code></pre>
+
+<div class="fig">
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="统计聚合管线">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="g4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="garr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="60" width="200" height="110" rx="14" fill="url(#g1)"/>
+    <text x="120" y="96" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">事件流</text>
+    <text x="120" y="120" text-anchor="middle" fill="#f1f5f9" font-size="11.5">全部 Trace 的 events</text>
+    <text x="120" y="140" text-anchor="middle" fill="#f1f5f9" font-size="11.5">进行中 + 已完成</text>
+    <text x="120" y="158" text-anchor="middle" fill="#f1f5f9" font-size="11.5">（含 duration_ms）</text>
+    <path d="M235 115 C260 115 260 115 280 115" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#garr)"/>
+    <rect x="290" y="60" width="190" height="110" rx="14" fill="url(#g2)"/>
+    <text x="385" y="96" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">get_stats() 聚合</text>
+    <text x="385" y="120" text-anchor="middle" fill="#eef0fb" font-size="11.5">耗时排序 → pct() 分位</text>
+    <text x="385" y="140" text-anchor="middle" fill="#eef0fb" font-size="11.5">事件类型分类计数</text>
+    <text x="385" y="158" text-anchor="middle" fill="#eef0fb" font-size="11.5">按 agent 二次聚合</text>
+    <path d="M495 115 C520 115 520 115 540 115" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#garr)"/>
+    <!-- 三个统计卡 -->
+    <rect x="550" y="20" width="290" height="64" rx="12" fill="url(#g3)"/>
+    <text x="695" y="46" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">⏱ 耗时分布</text>
+    <text x="695" y="68" text-anchor="middle" fill="#e0f2fe" font-size="11.5">avg 4120ms · p50 3980 · p95 8120 · max 15302</text>
+    <rect x="550" y="94" width="290" height="64" rx="12" fill="url(#g4)"/>
+    <text x="695" y="120" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">📊 调用统计</text>
+    <text x="695" y="142" text-anchor="middle" fill="#d1fae5" font-size="11.5">model 52 · tool 31 · memory_query 44</text>
+    <rect x="550" y="168" width="290" height="64" rx="12" fill="#e11d48"/>
+    <text x="695" y="194" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">⚠ 错误率</text>
+    <text x="695" y="216" text-anchor="middle" fill="#ffe4e6" font-size="11.5">error_events 3 / total 318 = 0.94%</text>
+  </g>
+</svg>
+<div class="fig-cap">统计管线：事件流 → 分位聚合 → 三张指标卡（耗时分布 / 调用次数 / 错误率），前端统计面板直接渲染。</div>
+</div>
+
+<p>分位数的实现值得注意——<code>pct()</code> 是一个 20 行的小函数：对耗时排序后按下标取分位，<code>p50</code> 是"一半请求比它快"，<code>p95</code> 是"95% 的请求比它快"。它比 <code>avg</code> 更能暴露尾部延迟（个别超慢请求会把平均值拉高，但 p50 不受影响）。</p>
+
+<div class="warn">局限要讲清楚：统计只覆盖<strong>进程内</strong>的 Trace（最多保留 100 条完成记录），没有采样、没有时间窗口聚合、没有持久化——重启即清零。这是学习级与 Langfuse 这类产品的分水岭。</div>
+</section>
+
+<section id="frontend">
+<h2>前端追踪面板</h2>
+<p>追踪面板 <code>frontend/src/components/workspace/TracingPanel.tsx</code> 提供三层信息，数据全部来自 <code>/api/tracing/*</code>：</p>
+
+<ul>
+  <li><strong>统计卡片</strong>：<code>GET /api/tracing/stats</code> → 平均耗时、模型调用、工具调用、记忆查询（<code>PerfCard</code> 组件）、错误率。</li>
+  <li><strong>追踪列表</strong>：<code>GET /api/tracing/traces</code> → 每条 Trace 显示 agent、开始时间、事件数、总耗时，支持按 agent 过滤。</li>
+  <li><strong>事件详情</strong>：<code>GET /api/tracing/traces/{trace_id}</code> → 展开事件链，每种类型有专属图标与配色（<code>memory_query</code> 数据库图标青色、<code>tool_call</code> 扳手、<code>error</code> 红色告警等），逐条看 <code>data</code> 载荷与耗时。</li>
+</ul>
+
+<div class="card">
+  <h4>事件类型 → 图标/配色映射（TracingPanel.tsx）</h4>
+  <table style="margin:8px 0 0">
+    <thead><tr><th>事件类型</th><th>图标</th><th>配色</th></tr></thead>
+    <tbody>
+      <tr><td><code>memory_query</code></td><td>数据库</td><td>青色</td></tr>
+      <tr><td><code>memory_add</code></td><td>数据库</td><td>绿色</td></tr>
+      <tr><td><code>tool_call / tool_result</code></td><td>扳手 / 对勾</td><td>靛蓝 / 绿色</td></tr>
+      <tr><td><code>model_call / model_response</code></td><td>芯片</td><td>琥珀</td></tr>
+      <tr><td><code>error</code></td><td>告警三角</td><td>红色</td></tr>
+    </tbody>
+  </table>
+  <p style="margin:10px 0 0;font-size:13px;color:var(--ink-2)">同一事件类型在列表与详情中复用同一映射，扫一眼颜色就能定位异常链。</p>
+</div>
+
+<div class="card">
+  <h4>实时回放怎么来？</h4>
+  <p style="margin:6px 0 0">与审批面板同款机制：<code>add_event()</code> 时经 <code>_ws_notifier</code> 推 <code>trace.event</code> 事件（含 <code>trace_id</code> 与事件本体）。正在执行的 Trace 会在面板上"边跑边长"，观察者能实时看到模型调用、工具执行的先后顺序——这是 Debug Agent 行为最直观的方式。</p>
+</div>
+
+<div class="tip">调试场景示例：用户说"回答很慢"。打开追踪面板，如果 <code>model_call</code> 占 80% 耗时，是模型慢；如果 <code>tool_call</code> 后面跟着一条 <code>error</code>，是工具挂了被吞进回复——没有 Trace，这两类问题都只能靠猜。</div>
+</section>
+
+<section id="compare">
+<h2>对比评分：LangSmith / Langfuse</h2>
+<p>业内参照：<strong>LangSmith</strong>（LangChain 官方观测平台）与 <strong>Langfuse</strong>（开源 LLM 可观测性，Trace/Observation/Score 模型）。评分原则：功能完整性 × 实现深度 × 工程化 × 生产就绪度，1-5 星。</p>
+
+<table>
+  <thead><tr><th style="width:15%">维度</th><th>本项目做了什么</th><th>业内参照</th><th style="width:14%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>事件覆盖</strong></td>
+      <td>agent / tool / model / memory / error 五类事件，工具异常挂 <code>parent_id</code>，WS 实时推送</td>
+      <td>LangSmith / Langfuse 全链路 Span</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>对话链路覆盖全；群聊/工作流/审批事件尚未全部接线（枚举已预留）</td>
+    </tr>
+    <tr>
+      <td><strong>耗时统计</strong></td>
+      <td>avg / p50 / p95 / max + 调用次数 + 错误率 + 按 agent 聚合</td>
+      <td>Langfuse 时间序列 + 成本曲线</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>统计维度对；缺时间窗口趋势、对比基线、阈值告警</td>
+    </tr>
+    <tr>
+      <td><strong>分布式传播</strong></td>
+      <td>进程内 <code>trace_id</code> 关联，无跨进程/跨服务上下文传播</td>
+      <td>OpenTelemetry trace context 传播</td>
+      <td><span class="rating r-1">1.5 ★</span></td>
+      <td>最大短板：分布式 Worker 的执行未接入统一 Trace；可加 <code>traceparent</code> 头透传</td>
+    </tr>
+    <tr>
+      <td><strong>成本归因</strong></td>
+      <td>记录 model_call 事件，但未统计 token 用量与费用</td>
+      <td>Langfuse token 计数 + 按模型计价</td>
+      <td><span class="rating r-2">2.0 ★</span></td>
+      <td>可在 <code>model_response</code> 事件里补 <code>usage</code> 字段，乘单价即得成本</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>总体：3.2 / 5.0</strong> —— 事件模型与统计口径对齐了业界范式，作为学习项目"形神兼备"；差距集中在工程面：无采样、无持久化、无分布式上下文传播、无成本归因。改进路线：加 <code>usage</code> → 加时间窗口 → 加 OTel 上下文。</div>
+</section>
+
+<section id="code">
+<h2>代码导读</h2>
+<table>
+  <thead><tr><th>文件</th><th>重点看什么</th><th>关键符号</th></tr></thead>
+  <tbody>
+    <tr><td><code>backend/app/tracing/tracer.py</code></td><td>事件模型 + 生命周期 + 统计</td><td><code>TraceEventType</code> · <code>TraceEvent</code> · <code>Trace</code> · <code>TracingSystem.start_trace / add_event / end_trace / trace_tool_call / get_traces / get_stats</code> · <code>pct()</code></td></tr>
+    <tr><td><code>backend/app/tracing/__init__.py</code></td><td>包导出</td><td><code>tracing_system</code> 全局单例</td></tr>
+    <tr><td><code>backend/app/agents/agent_manager.py</code></td><td>主链路埋点</td><td><code>send_message</code> / <code>stream_message</code> 中的 <code>start_trace / add_event(MEMORY_QUERY, MODEL_CALL) / end_trace</code></td></tr>
+    <tr><td><code>backend/app/main.py</code></td><td>查询 API</td><td><code>/api/tracing/stats</code> · <code>/api/tracing/traces</code> · <code>/api/tracing/traces/{trace_id}</code></td></tr>
+    <tr><td><code>frontend/src/components/workspace/TracingPanel.tsx</code></td><td>追踪面板 UI</td><td>统计卡片（<code>PerfCard</code>）· 追踪列表 · 事件详情（类型图标映射）</td></tr>
+  </tbody>
+</table>
+
+<h3>学习路径</h3>
+<ol>
+  <li>先在 <code>send_message</code> 里跑一次带记忆的对话，打开 <code>/api/tracing/traces</code> 看事件顺序。</li>
+  <li>给一个工具传入会抛错的参数，观察 <code>error</code> 事件如何通过 <code>parent_id</code> 挂在 <code>tool_call</code> 下。</li>
+  <li>读 <code>get_stats()</code> 的 <code>pct()</code>，动手算一组样例数据的 p50/p95，理解分位与均值的区别。</li>
+  <li>在 <code>trace_tool_call</code> 里加一个 <code>MODEL_CALL</code> 事件，看面板统计的 model_calls 是否 +1——埋点就是这么简单。</li>
+  <li>自问三个面试题：Trace 与 Span 什么关系？怎么加成本归因？分布式下 trace_id 怎么传播？</li>
+</ol>
+
+<div class="key">一句话总结：<strong>可观测性 = 统一事件模型（Trace/Event）+ 关键路径埋点 + 分位统计 + 实时可视化</strong>。它把 Agent 从"黑盒"变成"可回放、可定位、可量化"的透明系统。</div>
+</section>
+
+</main>
+</body>
+</html>

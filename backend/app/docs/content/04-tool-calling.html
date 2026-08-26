@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="工具调用">
+<meta name="doc:category" content="核心能力">
+<meta name="doc:order" content="4">
+<meta name="doc:description" content="ToolRegistry 注册机制、6 个内置工具、AG2 FunctionTool 集成、Agent 工具绑定与执行安全">
+<meta name="doc:icon" content="wrench">
+<title>04 · 工具调用</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#why" class="doc-toc-h2">为什么需要工具调用</a>
+  <a href="#registry" class="doc-toc-h2">ToolRegistry 设计</a>
+  <a href="#builtin" class="doc-toc-h2">内置工具表</a>
+  <a href="#ag2" class="doc-toc-h2">AG2 FunctionTool 集成</a>
+  <a href="#binding" class="doc-toc-h2">Agent 工具绑定</a>
+  <a href="#safety" class="doc-toc-h2">执行与安全</a>
+  <a href="#scorecard" class="doc-toc-h2">对比评分:与 LangChain Tools</a>
+  <a href="#guide" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🔧</div>
+  <div>
+    <h1>工具调用</h1>
+    <div class="hero-meta">ToolRegistry · 6 内置工具 · AG2 FunctionTool · Agent 绑定 · 执行安全 ｜ 建议先读 <b>03 · 对话与 Agent 编排</b></div>
+  </div>
+</div>
+
+<section id="why">
+<h2>为什么需要工具调用</h2>
+<p>大语言模型本质是<strong>文本概率模型</strong>:它擅长推理与生成,但天生无法做到——访问实时信息、执行代码并拿到真实输出、读写文件、做确定性计算(比如"今天星期几")。没有工具,它只是<strong>聊天机器人</strong>;有了工具,它才成为<strong>能做事的 Agent</strong>。这就是工具调用在整个能力栈里的位置。</p>
+
+<p>工具调用的核心范式是<strong>「声明意图,而不是执行」</strong>:模型不直接调用 Python 函数,而是输出一个结构化的 <code>function_call</code> 声明("我要调用 web_search,参数是 query=xxx"),由框架负责真正的执行,再把结果回填给模型,模型基于结果继续生成最终回复。三个角色的分工:</p>
+
+<div class="grid2">
+  <div class="card">
+    <h4>🎯 工具(能力提供者)</h4>
+    <ul style="margin:8px 0 0">
+      <li>一段真实可执行的函数 + 元数据(名称/描述/参数 schema)</li>
+      <li>只负责"怎么执行",不决定"何时执行"</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>🧠 模型(决策者)</h4>
+    <ul style="margin:8px 0 0">
+      <li>阅读工具描述,自主决定"这个问题需要调用哪个工具"</li>
+      <li>生成结构化 function_call,等待执行结果</li>
+    </ul>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>能力</th><th>无工具</th><th>有工具</th></tr></thead>
+  <tbody>
+    <tr><td>实时信息</td><td>只能编造(幻觉)</td><td><code>web_search</code> 返回真实结果</td></tr>
+    <tr><td>计算/数据处理</td><td>口算、易错</td><td><code>code_execute</code> 真实运行并拿输出</td></tr>
+    <tr><td>持久化产物</td><td>只能输出文本</td><td><code>file_write</code> 落盘文件</td></tr>
+    <tr><td>确定性时间</td><td>依赖训练数据,可能过时</td><td><code>datetime_utils</code> 精确取当前时间</td></tr>
+  </tbody>
+</table>
+
+<div class="key">学习要点:工具调用是「Agent 与外部世界交互」的通用协议。AiCumi 用 AG2 的 <code>FunctionTool</code> 作为执行原语,再用自研的 <code>ToolRegistry</code> 统一管理注册、元数据、绑定与开关 —— 前者来自框架,后者是产品层。</div>
+</section>
+
+<section id="registry">
+<h2>ToolRegistry 设计</h2>
+<p><code>ToolRegistry</code>(<code>backend/app/tools/registry.py</code>)是一个全局注册表(<code>tool_registry = ToolRegistry()</code>),用三个数据结构 + 一组方法管理工具的全生命周期。</p>
+
+<h3>数据结构:ToolParameter 与 ToolDefinition</h3>
+<ul>
+  <li><code>ToolParameter</code> —— 参数定义:<code>name / type(string|integer|float|boolean|array|object) / description / required / default / enum</code>;</li>
+  <li><code>ToolDefinition</code> —— 工具定义:<code>name / description / category / parameters / func(真实函数) / enabled / version</code>,提供两个序列化方法:
+    <ul>
+      <li><code>to_dict()</code>:给前端 API 的展示形状(不含 func);</li>
+      <li><code>to_openai_schema()</code>:生成 OpenAI function calling 风格的 JSON Schema(properties / required)。</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>注册:装饰器 + 签名推断</h3>
+<p><code>register()</code> 是装饰器工厂:把函数包装成 <code>ToolDefinition</code> 存进 <code>_tools[name]</code>。没手写参数时,<code>_infer_parameters()</code> 用 <code>inspect.signature()</code> 从函数签名<strong>自动推断</strong>类型与必填:</p>
+
+<pre><code>def register(self, name, description, category="general", parameters=None):
+    def decorator(func):
+        tool_params = parameters or self._infer_parameters(func)
+        self._tools[name] = ToolDefinition(
+            name=name, description=description, category=category,
+            parameters=tool_params, func=func,
+        )
+        return func
+    return decorator
+
+# 用法(builtin.py):
+@tool_registry.register(name="web_search", description="Search the web ...",
+                        category="search", parameters=[...])
+def web_search(query: str, num_results: int = 5) -> str: ...</code></pre>
+
+<h3>查询 / 开关 / 执行</h3>
+<ul>
+  <li>查询:<code>get(name)</code> / <code>list_tools(category)</code> / <code>list_tool_names()</code> / <code>get_enabled_tools()</code>;</li>
+  <li>开关:<code>enable(name)</code> / <code>disable(name)</code> —— 置 <code>enabled</code> 标志,执行与绑定前都会检查;</li>
+  <li>执行:<code>execute(name, **kwargs)</code> —— 校验存在 / 启用 / 有实现后调用 <code>func(**kwargs)</code>;</li>
+  <li>AG2 集成:<code>get_ag2_tools(names)</code> —— 见本章下文。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="工具注册绑定执行流程图">
+  <defs>
+    <linearGradient id="c4-1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="c4-2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="c4-3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="c4-4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="c4-5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <marker id="m4a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e6ad2"/></marker>
+    <marker id="m4b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="40" width="175" height="100" rx="14" fill="url(#c4-1)"/>
+    <text x="107" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">① 定义工具函数</text>
+    <text x="107" y="92" text-anchor="middle" fill="#eef0fb" font-size="11">@tool_registry.register</text>
+    <text x="107" y="110" text-anchor="middle" fill="#eef0fb" font-size="11">装饰器注册(builtin.py)</text>
+    <text x="107" y="128" text-anchor="middle" fill="#eef0fb" font-size="11">自动推断参数签名</text>
+    <rect x="215" y="40" width="175" height="100" rx="14" fill="url(#c4-2)"/>
+    <text x="302" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">② ToolDefinition 元数据</text>
+    <text x="302" y="92" text-anchor="middle" fill="#e0f2fe" font-size="11">name / desc / category</text>
+    <text x="302" y="110" text-anchor="middle" fill="#e0f2fe" font-size="11">params / func / enabled</text>
+    <text x="302" y="128" text-anchor="middle" fill="#e0f2fe" font-size="11">存进 _tools[name]</text>
+    <rect x="410" y="40" width="175" height="100" rx="14" fill="url(#c4-3)"/>
+    <text x="497" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">③ FunctionTool 包装</text>
+    <text x="497" y="92" text-anchor="middle" fill="#d1fae5" font-size="11">get_ag2_tools(names)</text>
+    <text x="497" y="110" text-anchor="middle" fill="#d1fae5" font-size="11">包装为 AG2 FunctionTool</text>
+    <text x="497" y="128" text-anchor="middle" fill="#d1fae5" font-size="11">跳过 disabled / 无实现</text>
+    <rect x="605" y="40" width="175" height="100" rx="14" fill="url(#c4-4)"/>
+    <text x="692" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">④ 绑定到 Agent</text>
+    <text x="692" y="92" text-anchor="middle" fill="#fef3c7" font-size="11">bind_tools → 写元数据</text>
+    <text x="692" y="110" text-anchor="middle" fill="#fef3c7" font-size="11">rebuild_agent 热重建</text>
+    <text x="692" y="128" text-anchor="middle" fill="#fef3c7" font-size="11">AssistantAgent(tools=[...])</text>
+    <path d="M195 90 L215 90" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#m4a)"/>
+    <path d="M390 90 L410 90" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#m4a)"/>
+    <path d="M585 90 L605 90" stroke="#5e6ad2" stroke-width="2.5" fill="none" marker-end="url(#m4a)"/>
+    <rect x="30" y="200" width="800" height="64" rx="14" fill="url(#c4-5)"/>
+    <text x="430" y="226" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">运行时执行循环:模型输出 function_call → tool_registry.execute(name, **kwargs)</text>
+    <text x="430" y="248" text-anchor="middle" fill="#f1f5f9" font-size="11.5">校验存在 / 启用 / 有实现 → func(**kwargs) → 结果 JSON 回填模型 → 模型续写最终回复</text>
+    <path d="M697 140 L697 172 L105 172 L105 140" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#m4b)"/>
+    <text x="400" y="164" text-anchor="middle" fill="#8b8e96" font-size="11.5">execute() 复用同一个函数对象,与注册时完全相同,不经过网络</text>
+    <rect x="610" y="300" width="220" height="44" rx="12" fill="#f4f4f7" stroke="#e8e8ec"/>
+    <text x="720" y="318" text-anchor="middle" fill="#44475f" font-size="11.5" font-weight="600">三个角色:工具(能力)</text>
+    <text x="720" y="334" text-anchor="middle" fill="#8b8e96" font-size="11">模型(决策) · 框架(执行)</text>
+  </g>
+</svg>
+<div class="fig-cap">工具生命周期:定义 → 注册为元数据 → FunctionTool 包装 → 绑定 Agent → 运行时 execute 执行循环。</div>
+</div>
+</section>
+
+<section id="builtin">
+<h2>内置工具表</h2>
+<p><code>backend/app/tools/builtin.py</code> 提供 6 个开箱即用的工具,全部用 <code>@tool_registry.register</code> 装饰器自动注册;<code>AgentManager.__init__</code> 里调用 <code>register_builtin_tools()</code> 完成初始化。按类别分五组:</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="内置工具分类图">
+  <defs>
+    <linearGradient id="c4-6" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="c4-7" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="c4-8" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="c4-9" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="c4-10" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#2dd4bf"/></linearGradient>
+    <linearGradient id="c4-11" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="16" width="820" height="44" rx="14" fill="url(#c4-6)"/>
+    <text x="430" y="43" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">ToolRegistry · 6 个内置工具 · 启动时 register_builtin_tools() 自动注册</text>
+    <rect x="20" y="80" width="260" height="140" rx="16" fill="url(#c4-7)"/>
+    <text x="150" y="112" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🔍 web_search</text>
+    <text x="150" y="132" text-anchor="middle" fill="#e0f2fe" font-size="11">category: search</text>
+    <text x="150" y="152" text-anchor="middle" fill="#e0f2fe" font-size="11">参数: query / num_results</text>
+    <text x="150" y="176" text-anchor="middle" fill="#e0f2fe" font-size="11">Serper API 搜索;未配置</text>
+    <text x="150" y="192" text-anchor="middle" fill="#e0f2fe" font-size="11">SERPER_API_KEY 时返回 mock</text>
+    <rect x="300" y="80" width="260" height="140" rx="16" fill="url(#c4-8)"/>
+    <text x="430" y="112" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">⚡ code_execute</text>
+    <text x="430" y="132" text-anchor="middle" fill="#d1fae5" font-size="11">category: code</text>
+    <text x="430" y="152" text-anchor="middle" fill="#d1fae5" font-size="11">参数: code / timeout(30s)</text>
+    <text x="430" y="176" text-anchor="middle" fill="#d1fae5" font-size="11">subprocess 执行 Python,</text>
+    <text x="430" y="192" text-anchor="middle" fill="#d1fae5" font-size="11">返回 stdout / stderr / code</text>
+    <rect x="580" y="80" width="260" height="140" rx="16" fill="url(#c4-9)"/>
+    <text x="710" y="112" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🕐 datetime_utils</text>
+    <text x="710" y="132" text-anchor="middle" fill="#fef3c7" font-size="11">category: utility</text>
+    <text x="710" y="152" text-anchor="middle" fill="#fef3c7" font-size="11">参数: action / value / format</text>
+    <text x="710" y="176" text-anchor="middle" fill="#fef3c7" font-size="11">action = now / format / parse</text>
+    <text x="710" y="192" text-anchor="middle" fill="#fef3c7" font-size="11">精确时间与时间戳互转</text>
+    <rect x="20" y="240" width="260" height="140" rx="16" fill="url(#c4-10)"/>
+    <text x="150" y="272" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">📖 file_read</text>
+    <text x="150" y="292" text-anchor="middle" fill="#ccfbf1" font-size="11">category: file</text>
+    <text x="150" y="312" text-anchor="middle" fill="#ccfbf1" font-size="11">参数: file_path / encoding</text>
+    <text x="150" y="336" text-anchor="middle" fill="#ccfbf1" font-size="11">读文件;WORKSPACE_DIR</text>
+    <text x="150" y="352" text-anchor="middle" fill="#ccfbf1" font-size="11">沙箱目录校验</text>
+    <rect x="300" y="240" width="260" height="140" rx="16" fill="url(#c4-11)"/>
+    <text x="430" y="272" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">✍️ file_write</text>
+    <text x="430" y="292" text-anchor="middle" fill="#f1f5f9" font-size="11">category: file</text>
+    <text x="430" y="312" text-anchor="middle" fill="#f1f5f9" font-size="11">参数: file_path / content</text>
+    <text x="430" y="336" text-anchor="middle" fill="#f1f5f9" font-size="11">写文件,自动建目录;</text>
+    <text x="430" y="352" text-anchor="middle" fill="#f1f5f9" font-size="11">WORKSPACE_DIR 沙箱校验</text>
+    <rect x="580" y="240" width="260" height="140" rx="16" fill="url(#c4-6)"/>
+    <text x="710" y="272" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">🧩 json_parse</text>
+    <text x="710" y="292" text-anchor="middle" fill="#eef0fb" font-size="11">category: data</text>
+    <text x="710" y="312" text-anchor="middle" fill="#eef0fb" font-size="11">参数: data</text>
+    <text x="710" y="336" text-anchor="middle" fill="#eef0fb" font-size="11">解析 / 校验 JSON,返回</text>
+    <text x="710" y="352" text-anchor="middle" fill="#eef0fb" font-size="11">格式化结果或错误详情</text>
+  </g>
+</svg>
+<div class="fig-cap">6 个内置工具按五类分布:search / code / file / data / utility。</div>
+</div>
+
+<table>
+  <thead><tr><th>工具</th><th>类别</th><th>参数</th><th>功能</th><th>实现要点</th></tr></thead>
+  <tbody>
+    <tr><td><code>web_search</code></td><td>search</td><td><code>query</code>, <code>num_results=5</code></td><td>网页搜索,返回标题/URL/摘要</td><td>有 <code>SERPER_API_KEY</code> 走 Serper,否则 mock</td></tr>
+    <tr><td><code>code_execute</code></td><td>code</td><td><code>code</code>, <code>timeout=30</code></td><td>执行 Python 代码,返回输出</td><td>临时文件 + subprocess + 超时</td></tr>
+    <tr><td><code>file_read</code></td><td>file</td><td><code>file_path</code>, <code>encoding=utf-8</code></td><td>读取文件内容</td><td>WORKSPACE_DIR 沙箱前缀校验</td></tr>
+    <tr><td><code>file_write</code></td><td>file</td><td><code>file_path</code>, <code>content</code></td><td>写入文件</td><td>沙箱校验 + <code>os.makedirs</code> 自动建目录</td></tr>
+    <tr><td><code>json_parse</code></td><td>data</td><td><code>data</code></td><td>解析/校验 JSON</td><td>成功返回格式化 JSON,失败返回错误详情</td></tr>
+    <tr><td><code>datetime_utils</code></td><td>utility</td><td><code>action</code>, <code>value</code>, <code>format</code></td><td>当前时间 / 时间戳格式化 / 日期解析</td><td><code>action</code> 用 enum 约束(now/format/parse)</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="ag2">
+<h2>AG2 FunctionTool 集成</h2>
+<p>AG2 用 <code>autogen_core.tools.FunctionTool</code> 作为工具执行原语:它自动从函数签名生成 JSON Schema 发给模型,模型据此产出 <code>function_call</code>,框架调用函数并把结果回填。AiCumi 的 <code>ToolRegistry.get_ag2_tools(names)</code> 就是把内置工具<strong>批量包装</strong>成 AG2 工具的桥:</p>
+
+<pre><code>def get_ag2_tools(self, names=None) -> List[Any]:
+    try:
+        from autogen_core.tools import FunctionTool
+    except ImportError:
+        return []                       # AG2 不可用 → 空列表(mock 模式)
+
+    target_tools = self._tools.values() if names is None else [
+        self._tools[n] for n in names if n in self._tools
+    ]
+    tools = []
+    for tool_def in target_tools:
+        if not tool_def.enabled or not tool_def.func:
+            continue                    # 禁用的 / 没有实现的跳过
+        tools.append(FunctionTool(
+            func=tool_def.func,         # 复用同一个函数对象
+            name=tool_def.name,
+            description=tool_def.description,
+        ))
+    return tools</code></pre>
+
+<h3>工具 Schema 生成</h3>
+<p><code>ToolDefinition.to_openai_schema()</code> 把 <code>ToolParameter</code> 列表转成 OpenAI function calling 格式(供 API 展示与调试,AG2 侧则由 FunctionTool 自行推导):</p>
+
+<pre><code>{
+  "name": "web_search",
+  "description": "Search the web ...",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query":       {"type": "string",  "description": "The search query"},
+      "num_results": {"type": "integer", "description": "Number of results ..."}
+    },
+    "required": ["query"]
+  }
+}</code></pre>
+
+<h3>一次带工具的完整对话:执行链路</h3>
+<p>模型收到消息后自主决定是否调用工具:<strong>需要工具 → 发 function_call;拿到结果 → 续写最终回复</strong>。整条链路横跨前端、AgentManager、AG2 Agent 与 FunctionTool 四个参与者:</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="工具调用执行链路时序图">
+  <defs>
+    <linearGradient id="c4-12" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="c4-13" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="c4-14" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="c4-15" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <marker id="m4c" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e6ad2"/></marker>
+    <marker id="m4d" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#10b981"/></marker>
+    <marker id="m4e" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#b45309"/></marker>
+    <marker id="m4f" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#8b93e8"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="24" width="150" height="42" rx="12" fill="url(#c4-12)"/><text x="95" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">前端 Web UI</text>
+    <rect x="240" y="24" width="150" height="42" rx="12" fill="url(#c4-13)"/><text x="315" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AgentManager</text>
+    <rect x="450" y="24" width="150" height="42" rx="12" fill="url(#c4-14)"/><text x="525" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AG2 Agent</text>
+    <rect x="660" y="24" width="170" height="42" rx="12" fill="url(#c4-15)"/><text x="745" y="50" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">FunctionTool</text>
+    <line x1="95" y1="66" x2="95" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="315" y1="66" x2="315" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="525" y1="66" x2="525" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="745" y1="66" x2="745" y2="336" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <g font-size="11.5" fill="#44475f">
+      <path d="M95 92 C170 92 240 92 300 92" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m4c)"/>
+      <text x="198" y="86" text-anchor="middle">1. chat.send{content}</text>
+      <path d="M315 124 C390 124 450 124 510 124" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m4c)"/>
+      <text x="412" y="118" text-anchor="middle">2. on_messages_stream() 流式</text>
+      <path d="M525 156 C610 156 660 156 726 156" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#m4c)"/>
+      <text x="625" y="150" text-anchor="middle">3. 模型决定调用工具 function_call</text>
+      <path d="M525 188 C610 188 660 188 726 188" stroke="#b45309" stroke-width="2" fill="none" marker-end="url(#m4e)"/>
+      <text x="625" y="182" text-anchor="middle">4. execute(name, **kwargs)</text>
+      <path d="M745 220 C700 220 600 220 540 220" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#m4d)"/>
+      <text x="642" y="214" text-anchor="middle">5. 执行结果 JSON 回传</text>
+      <path d="M525 252 C450 252 390 252 330 252" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#m4d)"/>
+      <text x="428" y="246" text-anchor="middle">6. 模型续写最终回复</text>
+      <path d="M315 284 C240 284 180 284 120 284" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#m4d)"/>
+      <text x="218" y="278" text-anchor="middle">7. chat.chunk / chat.done 流式</text>
+      <path d="M95 316 C170 316 240 316 300 316" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#m4f)"/>
+      <text x="198" y="310" text-anchor="middle">8. save_message 落库</text>
+    </g>
+    <rect x="600" y="322" width="240" height="58" rx="12" fill="#f4f4f7" stroke="#e8e8ec"/>
+    <text x="720" y="342" text-anchor="middle" fill="#44475f" font-size="11" font-weight="600">安全护栏速记</text>
+    <text x="720" y="358" text-anchor="middle" fill="#8b8e96" font-size="10.5">code_execute → subprocess + timeout</text>
+    <text x="720" y="372" text-anchor="middle" fill="#8b8e96" font-size="10.5">file_* → WORKSPACE_DIR 沙箱</text>
+  </g>
+</svg>
+<div class="fig-cap">工具调用执行链路:function_call 声明 → FunctionTool 执行 → 结果回填 → 模型续写 → 流式输出。</div>
+</div>
+
+<div class="tip">学习要点:注册表里的 <code>func</code>、展示用的 <code>to_dict()</code>、给模型的 <code>to_openai_schema()</code>、给 AG2 的 <code>FunctionTool</code> —— 同一份元数据被序列化成不同面向的产物,这就是"单一数据源,多形态出口"。</div>
+</section>
+
+<section id="binding">
+<h2>Agent 工具绑定</h2>
+<p>工具不是全局生效的,而是<strong>per-agent 绑定</strong>:每个员工配哪几个工具,取决于它的人设。三个默认员工的绑定(<code>agent_manager.py</code> 的 <code>default_agents</code>):</p>
+
+<table>
+  <thead><tr><th>员工</th><th>角色</th><th>默认绑定工具</th><th>绑定逻辑</th></tr></thead>
+  <tbody>
+    <tr><td>可灵</td><td>前台秘书</td><td><code>web_search</code> + <code>datetime_utils</code></td><td>接待、查资料、报时间</td></tr>
+    <tr><td>小研</td><td>调研专员</td><td><code>web_search</code> + <code>json_parse</code> + <code>datetime_utils</code></td><td>搜索 + 解析结构化数据</td></tr>
+    <tr><td>小码</td><td>技术专家</td><td><code>code_execute</code> + <code>file_read</code> + <code>file_write</code> + <code>json_parse</code></td><td>写代码、读写文件、处理数据</td></tr>
+  </tbody>
+</table>
+
+<h3>绑定 / 解绑 / 查询</h3>
+<p><code>AgentManager</code> 提供三个方法,核心是"<strong>写元数据 → 异步热重建实例</strong>":</p>
+
+<pre><code>def bind_tools(self, agent_id, tool_names) -> bool:
+    if agent_id not in self.agents:
+        return False
+    valid = [n for n in tool_names if tool_registry.get(n)]  # 只保留存在的工具
+    self.agents[agent_id]["tools"] = valid
+    asyncio.create_task(self.rebuild_agent(agent_id))         # 异步重建 AG2 实例
+    return True
+
+def unbind_tools(self, agent_id) -> bool:   # tools = [] + rebuild
+def get_agent_tools(self, agent_id) -> List[str]</code></pre>
+
+<h3>API 与前端工具箱 UI</h3>
+<table>
+  <thead><tr><th>端点(<code>main.py</code>)</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /api/tools</code></td><td>列出全部工具(可传 <code>category</code> 过滤)</td></tr>
+    <tr><td><code>GET /api/tools/{name}</code></td><td>查看单个工具详情</td></tr>
+    <tr><td><code>POST /api/tools/{name}/enable|disable</code></td><td>全局启用/禁用工具</td></tr>
+    <tr><td><code>POST /api/tools/{name}/execute</code></td><td>手动测试执行工具(传参 dict)</td></tr>
+    <tr><td><code>GET /api/agents/{id}/tools</code></td><td>查某 Agent 已绑定的工具</td></tr>
+    <tr><td><code>POST /api/agents/{id}/tools</code></td><td>绑定工具(<code>ToolBindRequest{tool_names}</code>)</td></tr>
+    <tr><td><code>DELETE /api/agents/{id}/tools</code></td><td>解绑全部工具</td></tr>
+  </tbody>
+</table>
+
+<p>前端「工具箱」面板把这些端点做成开关式 UI:勾选工具 → <code>POST /api/agents/{id}/tools</code> → 后端异步 <code>rebuild_agent()</code>,底层 <code>AssistantAgent</code> 携带新工具集重建,<code>mode</code> 同步刷新 —— 用户无需重启服务即可完成"给员工换技能"。</p>
+
+<div class="note">绑定链路:前端勾选 → REST → <code>bind_tools()</code> 写元数据 → <code>rebuild_agent()</code> → <code>_build_agent_instance()</code> 用 <code>get_ag2_tools(info["tools"])</code> 重新生成 FunctionTool 列表 → 新 Agent 生效。</div>
+</section>
+
+<section id="safety">
+<h2>执行与安全</h2>
+<p>让模型能"执行代码、读写文件"意味着把系统能力交给了不可信的输入,安全设计是这一节的重点。</p>
+
+<h3>code_execute:子进程 + 超时 + 临时文件</h3>
+<pre><code>def code_execute(code: str, timeout: int = 30) -> str:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(code); temp_file = f.name
+    try:
+        result = subprocess.run(["python3", temp_file],
+                                capture_output=True, text=True,
+                                timeout=timeout, cwd=tempfile.gettempdir())
+        os.unlink(temp_file)          # 用完即删
+        return json.dumps({"success": result.returncode == 0,
+                           "stdout": result.stdout, "stderr": result.stderr,
+                           "return_code": result.returncode})
+    except subprocess.TimeoutExpired:
+        return json.dumps({"success": False,
+                           "error": f"timed out after {timeout}s"})</code></pre>
+<p>三个护栏:<strong>子进程隔离</strong>(不注入主进程)、<strong>timeout 硬超时</strong>(默认 30s)、<strong>临时文件即用即删</strong>。错误统一转成 JSON 结构,让模型能"读懂"失败原因。</p>
+
+<h3>file_read / file_write:沙箱目录限制</h3>
+<pre><code>workspace = os.getenv("WORKSPACE_DIR", os.getcwd())
+abs_path = os.path.abspath(file_path)
+if not abs_path.startswith(os.path.abspath(workspace)):
+    return json.dumps({"error": "Access denied: File must be within workspace directory"})</code></pre>
+<p>所有文件操作先做<strong>绝对路径前缀校验</strong>,确保读写都锁死在 <code>WORKSPACE_DIR</code> 内;<code>file_write</code> 额外用 <code>os.makedirs(..., exist_ok=True)</code> 自动创建目录。</p>
+
+<div class="warn">已知局限(刻意取舍):<code>code_execute</code> 用的是 <code>subprocess</code> 而非容器沙箱 —— 能防"失控进程",防不了"恶意代码读取工作区外路径";<code>web_search</code> 未配置 <code>SERPER_API_KEY</code> 时返回 mock 数据,不产生真实流量。生产级加固方向:Docker/nsjail 隔离、资源配额、命令白名单、审计回放。</div>
+
+<div class="tip">学习要点:安全是"纵深防御"—— 路径前缀校验(入口)、子进程 + 超时(资源)、JSON 化错误(可观测)、沙箱目录(权限最小化)。面试讲工具调用时,主动讲安全设计是明显的加分项。</div>
+</section>
+
+<section id="scorecard">
+<h2>对比评分:与 LangChain Tools</h2>
+<p>评分原则:<strong>功能完整性 × 实现深度 × 工程化 × 生产就绪度</strong>,1-5 星,参照对象是业界最主流的工具框架 <strong>LangChain Tools</strong>(以及 AG2 原生 FunctionTool)。</p>
+
+<table>
+  <thead><tr><th style="width:17%">维度</th><th>做了什么</th><th>LangChain Tools</th><th style="width:13%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>注册机制</strong></td>
+      <td>装饰器注册 + 签名推断 + 元数据/开关/序列化一体</td>
+      <td>Tool / @tool / StructuredTool 装饰器</td>
+      <td><span class="rating r-5">4.5 ★</span></td>
+      <td>机制等价;缺参数校验执行与版本迁移</td>
+    </tr>
+    <tr>
+      <td><strong>工具丰富度</strong></td>
+      <td>6 个内置工具(搜索/代码/文件/JSON/时间)</td>
+      <td>数百个社区工具 + 生态集成</td>
+      <td><span class="rating r-2">2.5 ★</span></td>
+      <td>个人项目够用;扩充方向:HTTP 请求、数据库、RAG 查询工具</td>
+    </tr>
+    <tr>
+      <td><strong>绑定灵活性</strong></td>
+      <td>per-agent 绑定 + 前端 UI + rebuild 热生效</td>
+      <td>Agent 构造时传入 tools 列表</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>运行时可热绑是加分项;缺按会话/任务级绑定</td>
+    </tr>
+    <tr>
+      <td><strong>安全沙箱</strong></td>
+      <td>subprocess + 超时 + WORKSPACE_DIR 路径沙箱</td>
+      <td>依赖使用者自行加固,无内置沙箱</td>
+      <td><span class="rating r-3">3.0 ★</span></td>
+      <td>比 LangChain 默认更自觉;离容器级隔离有距离</td>
+    </tr>
+    <tr>
+      <td><strong>生态与文档</strong></td>
+      <td>自研实现,无外部依赖,学习成本低</td>
+      <td>海量文档与社区最佳实践</td>
+      <td><span class="rating r-2">2.0 ★</span></td>
+      <td>自研 = 可讲但生态小;复用 AG2 FunctionTool 缓解</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>总体评分:3.2 / 5.0</strong> —— 在"个人学习作品"目标下,注册机制与绑定灵活性已达到框架等价水平;差距主要在工具生态广度与沙箱深度。核心收获:用自己的抽象层包住 AG2 的 FunctionTool,既学习了业界范式,又保留了可讲的产品设计。</div>
+</section>
+
+<section id="guide">
+<h2>代码导读</h2>
+<p>按「注册 → 包装 → 绑定 → 执行 → 安全」的顺序读,6 个函数就能把工具调用讲透:</p>
+
+<table>
+  <thead><tr><th>函数</th><th>位置</th><th>作用</th><th>关键点</th></tr></thead>
+  <tbody>
+    <tr><td><code>ToolRegistry.register()</code></td><td><code>tools/registry.py</code></td><td>装饰器注册工具到 <code>_tools</code></td><td><code>_infer_parameters()</code> 签名推断</td></tr>
+    <tr><td><code>ToolRegistry.execute()</code></td><td>同上</td><td>按名执行工具函数</td><td>校验存在/启用/有实现</td></tr>
+    <tr><td><code>ToolRegistry.get_ag2_tools()</code></td><td>同上</td><td>包装为 AG2 FunctionTool</td><td>跳过 disabled / 无实现</td></tr>
+    <tr><td><code>AgentManager.bind_tools()</code> + <code>rebuild_agent()</code></td><td><code>agents/agent_manager.py</code></td><td>绑定工具并热重建实例</td><td><code>asyncio.create_task</code> 异步重建</td></tr>
+    <tr><td><code>code_execute()</code></td><td><code>tools/builtin.py</code></td><td>子进程执行 Python</td><td>tempfile + timeout + 即用即删</td></tr>
+    <tr><td><code>file_read()</code> / <code>file_write()</code></td><td>同上</td><td>沙箱内读写文件</td><td>WORKSPACE_DIR 前缀校验</td></tr>
+  </tbody>
+</table>
+
+<ol>
+  <li>先读 <code>registry.py</code> 全文(226 行):理解 ToolParameter / ToolDefinition / ToolRegistry 三件套;</li>
+  <li>再读 <code>builtin.py</code>:挑 <code>web_search</code>(真实/兜底双路径)与 <code>code_execute</code>(子进程护栏)各读一遍;</li>
+  <li>回到 <code>agent_manager.py</code> 的 <code>_build_agent_instance()</code>:看 tools 如何进入 <code>AssistantAgent(tools=...)</code>;</li>
+  <li>看 <code>bind_tools()</code> → <code>rebuild_agent()</code>:理解"元数据 + 热重建"的更新范式;</li>
+  <li>最后过一遍 <code>main.py</code> 的 <code>/api/tools*</code> 与 <code>/api/agents/{id}/tools*</code> 端点,把整条链路(UI → REST → Registry → AG2)串起来。</li>
+</ol>
+
+<div class="key">面试叙事:从「我用装饰器做了统一注册、从签名自动推断参数」讲到「工具绑定到 Agent 后通过 rebuild 热生效」再到「code_execute 用子进程 + 超时、文件工具锁死在 WORKSPACE_DIR 沙箱」—— 注册、绑定、安全三连,是一个完整的工具调用故事。</div>
+</section>
+
+</main>
+</body>
+</html>

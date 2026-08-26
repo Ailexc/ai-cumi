@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="Human-in-the-loop">
+<meta name="doc:category" content="核心能力">
+<meta name="doc:order" content="6">
+<meta name="doc:description" content="审批状态机、异步等待唤醒、工作流 human_review 节点与前端审批面板">
+<meta name="doc:icon" content="shield-check">
+<title>06 · Human-in-the-loop</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#concept" class="doc-toc-h2">HITL 概念：为什么关键操作需要人审</a>
+  <a href="#design" class="doc-toc-h2">审批系统设计</a>
+  <a href="#status" class="doc-toc-h3">ApprovalRequest 状态机</a>
+  <a href="#manager" class="doc-toc-h3">HumanApprovalManager：异步等待与唤醒</a>
+  <a href="#toolwrap" class="doc-toc-h3">ApprovalRequiredTool 工具包装器</a>
+  <a href="#api" class="doc-toc-h2">审批 API 一览</a>
+  <a href="#workflow" class="doc-toc-h2">工作流集成：human_review 节点</a>
+  <a href="#frontend" class="doc-toc-h2">前端审批面板</a>
+  <a href="#compare" class="doc-toc-h2">对比评分：LangGraph interrupt</a>
+  <a href="#code" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🛡️</div>
+  <div>
+    <h1>Human-in-the-loop</h1>
+    <div class="hero-meta">人机回环 · 审批状态机 · 异步等待唤醒 · 工作流集成 ｜ 建议先读 05 · 记忆系统</div>
+  </div>
+</div>
+
+<section id="concept">
+<h2>HITL 概念：为什么关键操作需要人审</h2>
+<p><strong>Human-in-the-loop（HITL，人机回环）</strong>指在自动化流程中插入"人类决策点"：Agent 在执行<strong>有副作用、不可逆、或有风险</strong>的操作前，先停下来征求人的同意，人点头才继续。这是<strong>生产级 Agent 的必备能力</strong>——一个能自由行动的 Agent，和一个有安全阀的 Agent，可信度完全不同。</p>
+
+<div class="card">
+  <h4>为什么 Agent 不能全自动</h4>
+  <ul style="margin:8px 0 0">
+    <li><strong>LLM 会犯错</strong>：幻觉、理解偏差，把"测试"当成"删除生产数据"。</li>
+    <li><strong>副作用不可逆</strong>：发消息给外部、删除文件、调用付费 API、执行命令——错了难补救。</li>
+    <li><strong>缺业务上下文</strong>：模型不知道"这条消息该不该发"这种隐含规则。</li>
+    <li><strong>信任建立</strong>：人审让用户对 Agent 有掌控感，是产品可信度的基石。</li>
+  </ul>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h4>🔴 应该审批的操作</h4>
+    <ul style="margin:8px 0 0">
+      <li>向外部/群聊发送消息（<code>send_message</code>）</li>
+      <li>文件删除 / 覆盖（<code>file_operation</code>）</li>
+      <li>工具调用（<code>tool_call</code>）</li>
+      <li>工作流人工审核节点（<code>workflow_step</code>）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>🟢 无需审批的操作</h4>
+    <ul style="margin:8px 0 0">
+      <li>纯问答、信息检索</li>
+      <li>只读工具（查询天气、搜索）</li>
+      <li>无副作用的内部计算</li>
+    </ul>
+  </div>
+</div>
+
+<p>业界的主流实现是 <strong>LangGraph 的 interrupt（中断-恢复）机制</strong>：图执行到 <code>interrupt()</code> 处挂起，把控制权交还外部（人/系统），处理完再 <code>Command(resume=...)</code> 恢复执行。AiCumi 用<strong>更贴近业务的形式</strong>复刻了这个语义：Agent 发一个审批请求 → 挂起等待 → 人在面板上点通过/驳回 → Agent 被唤醒继续。核心思想完全一致：<strong>执行可以在中间暂停，而不是整体取消</strong>。</p>
+
+<table>
+  <thead><tr><th>对比项</th><th>LangGraph interrupt</th><th>AiCumi 审批系统</th></tr></thead>
+  <tbody>
+    <tr><td>挂起原语</td><td><code>interrupt(payload)</code> 挂起图执行</td><td><code>wait_for_approval()</code> await 一个 Future</td></tr>
+    <tr><td>恢复方式</td><td>外部 <code>Command(resume=value)</code> 续跑</td><td>面板 resolve → <code>waiter.set_result()</code> 唤醒</td></tr>
+    <tr><td>状态表达</td><td>执行栈状态（checkpoint）</td><td>显式 <code>ApprovalStatus</code> 状态机 + 历史留痕</td></tr>
+    <tr><td>产品形态</td><td>API 级原语，需自建 UI</td><td>自带审批工作台（待办/历史/统计）</td></tr>
+  </tbody>
+</table>
+
+<div class="key">学习要点：HITL 的本质是<strong>「中断 + 等待 + 恢复」三件套</strong>。实现难点不在"发个请求"，而在<strong>异步等待</strong>——Agent 的调用栈要能挂起，等一个外部事件（人点击）再精确地继续执行。AiCumi 用 <code>asyncio.Future</code> 解决。</div>
+</section>
+
+<section id="design">
+<h2>审批系统设计</h2>
+<p>核心在 <code>backend/app/approval/hitl.py</code>：一个 <code>ApprovalRequest</code> 数据类描述"审什么"，一个 <code>HumanApprovalManager</code> 管理"怎么审、怎么等、怎么唤醒"。全局单例 <code>approval_manager</code> 由 <code>backend/app/approval/__init__.py</code> 导出。</p>
+
+<h3 id="status">ApprovalRequest 状态机</h3>
+<p>状态枚举 <code>ApprovalStatus</code> 定义了五个终态/中间态，覆盖"人审"的全部走向：</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="审批状态流转图">
+  <defs>
+    <linearGradient id="s1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="s2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e11d48"/><stop offset="1" stop-color="#fb7185"/></linearGradient>
+    <linearGradient id="s3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="s4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <marker id="sarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="40" y="30" width="220" height="80" rx="14" fill="url(#s1)"/>
+    <text x="150" y="62" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">✅ approved 已通过</text>
+    <text x="150" y="86" text-anchor="middle" fill="#d1fae5" font-size="11.5">Agent 继续执行</text>
+    <rect x="600" y="30" width="220" height="80" rx="14" fill="url(#s2)"/>
+    <text x="710" y="62" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">⛔ rejected 已驳回</text>
+    <text x="710" y="86" text-anchor="middle" fill="#ffe4e6" font-size="11.5">Agent 收到拒绝结果</text>
+    <rect x="320" y="125" width="220" height="88" rx="14" fill="url(#s3)"/>
+    <text x="430" y="157" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">⏳ pending 待审批</text>
+    <text x="430" y="181" text-anchor="middle" fill="#fef3c7" font-size="11.5">等待人类决策</text>
+    <text x="430" y="199" text-anchor="middle" fill="#fef3c7" font-size="11.5">request_approval 创建</text>
+    <rect x="40" y="235" width="220" height="70" rx="14" fill="url(#s3)"/>
+    <text x="150" y="264" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">⏱ timeout 超时</text>
+    <text x="150" y="286" text-anchor="middle" fill="#fef3c7" font-size="11.5">wait_for_approval 超时</text>
+    <rect x="600" y="235" width="220" height="70" rx="14" fill="url(#s4)"/>
+    <text x="710" y="264" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">✖ cancelled 已取消</text>
+    <text x="710" y="286" text-anchor="middle" fill="#e2e8f0" font-size="11.5">状态枚举预留</text>
+    <!-- 流转 -->
+    <path d="M390 125 C330 100 270 100 195 110" stroke="#16a34a" stroke-width="2.5" fill="none" marker-end="url(#sarr)"/>
+    <text x="285" y="102" text-anchor="middle" fill="#16a34a" font-size="11.5" font-weight="600">人工通过</text>
+    <path d="M470 125 C530 100 590 100 665 110" stroke="#e11d48" stroke-width="2.5" fill="none" marker-end="url(#sarr)"/>
+    <text x="575" y="102" text-anchor="middle" fill="#e11d48" font-size="11.5" font-weight="600">人工驳回</text>
+    <path d="M390 213 C330 238 270 238 195 235" stroke="#b45309" stroke-width="2" fill="none" stroke-dasharray="6 5" marker-end="url(#sarr)"/>
+    <text x="290" y="232" text-anchor="middle" fill="#b45309" font-size="11">等待超时</text>
+    <path d="M470 213 C530 238 590 238 665 235" stroke="#64748b" stroke-width="2" fill="none" stroke-dasharray="6 5" marker-end="url(#sarr)"/>
+    <text x="570" y="232" text-anchor="middle" fill="#64748b" font-size="11">取消</text>
+  </g>
+</svg>
+<div class="fig-cap">审批状态机：<code>pending</code> 是唯一中间态，流向通过 / 驳回 / 超时 / 取消四个方向；超时与取消是"无人干预"的兜底出口。</div>
+</div>
+
+<p><code>ApprovalRequest</code> 携带审批所需的全部上下文（<code>hitl.py</code> 中定义）：</p>
+
+<table>
+  <thead><tr><th>字段</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>id</code></td><td><code>uuid4</code>，审批句柄，API 按它 resolve</td></tr>
+    <tr><td><code>agent_id</code></td><td>发起审批的员工（工作流为 <code>"workflow"</code>）</td></tr>
+    <tr><td><code>action</code></td><td>动作类型：<code>tool_call</code> / <code>send_message</code> / <code>file_operation</code> / <code>workflow_step</code></td></tr>
+    <tr><td><code>description</code></td><td>人类可读的描述——审批卡片上人看到的就是它</td></tr>
+    <tr><td><code>params</code></td><td>结构化参数（如工具入参），供审批者判断</td></tr>
+    <tr><td><code>status</code></td><td>当前状态（见状态机）</td></tr>
+    <tr><td><code>created_at / resolved_at</code></td><td>发起 / 解决时间，历史排序依据</td></tr>
+    <tr><td><code>response</code></td><td>人类的回复理由，随结果回传 Agent</td></tr>
+    <tr><td><code>auto_approve_after</code></td><td>若开启 auto-approve，N 秒后自动通过</td></tr>
+  </tbody>
+</table>
+
+<h3 id="manager">HumanApprovalManager：异步等待与唤醒</h3>
+<p>三个内部结构是理解这个类的钥匙：</p>
+
+<pre><code># backend/app/approval/hitl.py · HumanApprovalManager.__init__
+self._pending_requests: Dict[str, ApprovalRequest] = {}   # 进行中：id → 请求
+self._history: List[ApprovalRequest] = []                  # 已解决：滚动窗口(1000)
+self._waiters: Dict[str, asyncio.Future] = {}              # 等待者：id → Future
+self._ws_notifier: Optional[Callable] = None               # 实时推送钩子</code></pre>
+
+<ol>
+  <li><strong><code>request_approval(agent_id, action, description, params, timeout, auto_approve)</code></strong>：创建请求入 pending → 通过 <code>_ws_notifier</code> 推 <code>approval.request</code> 事件给前端 → 若 <code>auto_approve=True</code> 则起一个后台任务 <code>_auto_approve_after</code> 定时自动通过。</li>
+  <li><strong><code>wait_for_approval(request_id, timeout)</code></strong>：Agent 侧挂起等待。已解决则直接返回；否则创建 <code>asyncio.Future</code> 注册进 <code>_waiters</code>，然后 <code>await asyncio.wait_for(future, timeout)</code>——<strong>Future 被 resolve 唤醒，或超时自动置为 <code>timeout</code></strong>。这是整个 HITL 的"暂停/恢复"核心。</li>
+  <li><strong><code>resolve_request(request_id, status, response)</code></strong>：人/系统裁决入口。从 pending 弹出 → 写状态/时间/理由 → 入 history（超 1000 条截断）→ <strong>用 <code>waiter.set_result(request)</code> 唤醒等待者</strong> → 推 <code>approval.resolved</code> 事件给前端。</li>
+</ol>
+
+<p>实时通知的接线在 <code>set_ws_notifier()</code>：启动时把 WS 广播函数注入进来（见 <code>backend/app/main.py</code> 启动流程），此后每次请求/解决都会以 <code>approval.request</code> / <code>approval.resolved</code> 事件推给所有在线前端。推送内容就是 <code>ApprovalRequest.to_dict()</code>，前端无需再发 REST 查询即可刷新面板。</p>
+
+<pre><code># backend/app/approval/hitl.py · 事件推送载荷
+# request_approval 内：
+await self._ws_notifier({
+    "type": "approval.request",
+    "request": request.to_dict(),   # 含 id/agent_id/action/description/params
+})
+# resolve_request 内：
+await self._ws_notifier({
+    "type": "approval.resolved",
+    "request": request.to_dict(),   # 含最终 status / response / resolved_at
+})</code></pre>
+
+<div class="fig">
+<svg viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="审批请求生命周期泳道图">
+  <defs>
+    <linearGradient id="h1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="h2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="h3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="h4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="harr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="30" width="160" height="42" rx="12" fill="url(#h1)"/><text x="100" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Agent / 工具</text>
+    <rect x="240" y="30" width="170" height="42" rx="12" fill="url(#h2)"/><text x="325" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">ApprovalManager</text>
+    <rect x="470" y="30" width="170" height="42" rx="12" fill="url(#h3)"/><text x="555" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">前端 · WS</text>
+    <rect x="700" y="30" width="140" height="42" rx="12" fill="url(#h4)"/><text x="770" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">人类</text>
+    <line x1="100" y1="72" x2="100" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="325" y1="72" x2="325" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="555" y1="72" x2="555" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="770" y1="72" x2="770" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <g font-size="11.5" fill="#44475f">
+      <path d="M100 92 C180 92 240 92 310 92" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#harr)"/>
+      <text x="205" y="86" text-anchor="middle">1. request_approval(...)</text>
+      <path d="M325 118 C400 118 470 118 542 118" stroke="#0ea5e9" stroke-width="2" fill="none" marker-end="url(#harr)"/>
+      <text x="432" y="112" text-anchor="middle">2. approval.request 事件</text>
+      <path d="M555 144 C630 144 700 144 758 144" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#harr)"/>
+      <text x="656" y="138" text-anchor="middle">3. 渲染待审批卡片</text>
+      <path d="M770 172 C700 172 630 172 568 172" stroke="#10b981" stroke-width="2" fill="none"/>
+      <text x="668" y="166" text-anchor="middle">4. 通过 / 驳回 + 理由</text>
+      <path d="M555 198 C480 198 400 198 338 198" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#harr)"/>
+      <text x="446" y="192" text-anchor="middle">5. POST /api/approval/{id}/resolve</text>
+      <path d="M325 224 C250 224 180 224 114 224" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="220" y="218" text-anchor="middle">6. waiter.set_result 唤醒</text>
+      <path d="M325 250 C400 250 470 250 542 250" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="432" y="244" text-anchor="middle">7. approval.resolved 事件</text>
+      <path d="M100 276 C180 276 240 276 310 276" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="205" y="270" text-anchor="middle">8. 继续执行 / 返回拒绝</text>
+      <path d="M100 302 C180 302 240 302 310 302" stroke="#94a3b8" stroke-width="2" fill="none" stroke-dasharray="2 4"/>
+      <text x="205" y="296" text-anchor="middle">9. 超时(60s) → status=timeout</text>
+    </g>
+  </g>
+</svg>
+<div class="fig-cap">一次审批的完整生命周期：Agent 发起 → 前端展示 → 人类裁决 → Future 唤醒 → Agent 恢复。超时是无人干预时的兜底出口。</div>
+</div>
+
+<h3 id="toolwrap">ApprovalRequiredTool 工具包装器</h3>
+<p><code>ApprovalRequiredTool</code> 把"需审批的工具"包成一个标准执行入口：先审批、后执行。非通过状态一律<strong>不执行真实工具</strong>，返回给 Agent 一个可读的错误对象——Agent 能据此向用户解释"操作被拒绝了"。</p>
+
+<pre><code># backend/app/approval/hitl.py · ApprovalRequiredTool.execute（要点）
+request = await approval_manager.request_approval(
+    agent_id=agent_id, action=f"tool_call:{self.tool_name}",
+    description=self.description, params=kwargs,
+    timeout=self.timeout, auto_approve=self.auto_approve,
+)
+resolved = await approval_manager.wait_for_approval(request.id, timeout=self.timeout)
+if resolved.status != ApprovalStatus.APPROVED:
+    return {"error": "Action rejected by human",
+            "status": resolved.status.value, "response": resolved.response}
+result = self.tool_func(**kwargs)          # 审批通过才真正执行
+return {"success": True, "result": result, "approval_id": request.id}</code></pre>
+
+<div class="warn">设计观察：包装器返回<strong>结构化结果而非抛异常</strong>——拒绝不是"崩溃"，而是"业务结果"。这让 Agent 能优雅地继续对话（"好的，那我先不执行这个操作"），而不是触发错误重试。</div>
+</section>
+
+<section id="api">
+<h2>审批 API 一览</h2>
+<p>管理面在 <code>backend/app/main.py</code> 的 <code>/api/approval/*</code>，配合 WS 实时事件 <code>approval.request</code> / <code>approval.resolved</code> 双通道：查询走 REST，变更即时性靠 WS 推送。</p>
+
+<table>
+  <thead><tr><th>方法 + 路径</th><th>参数</th><th>返回</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /api/approval/pending</code></td><td><code>agent_id?</code></td><td><code>requests[]</code></td><td>待审批列表（按创建时间倒序）</td></tr>
+    <tr><td><code>GET /api/approval/history</code></td><td><code>agent_id?, limit=50</code></td><td><code>history[]</code></td><td>已解决的历史审批</td></tr>
+    <tr><td><code>POST /api/approval/{request_id}/resolve</code></td><td><code>status: approved|rejected</code> + <code>response?</code></td><td><code>request</code></td><td>人的裁决入口；非法 status 返回 400</td></tr>
+    <tr><td><code>GET /api/approval/stats</code></td><td>—</td><td><code>stats</code></td><td>pending 数、历史数、进行中请求明细</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">注意 <code>resolve</code> 的入参只有 <code>approved / rejected</code> 两档——<code>timeout</code> 与 <code>cancelled</code> 是系统内部路径（超时自动置位 / 预留），不开放给人直接操作，避免状态被外部写乱。</div>
+</section>
+
+<section id="workflow">
+<h2>工作流集成：human_review 节点</h2>
+<p>工作流引擎（08 · 工作流编排）在注册处理器时，把 <code>HUMAN_REVIEW</code> 节点接到审批系统（<code>backend/app/main.py · _register_workflow_handlers</code>）。这个节点的语义是<strong>"流程到这里必须人点头才往下走"</strong>：</p>
+
+<pre><code># backend/app/main.py · _register_workflow_handlers → human_review_handler
+async def human_review_handler(input_data, config):
+    from .approval import approval_manager
+    request = await approval_manager.request_approval(
+        agent_id=config.get("agent_id", "workflow"),
+        action="workflow_step",
+        description=config.get("description", "工作流执行到人工审核节点"),
+        params={"input": input_data, **(config.get("params") or {})},
+        timeout=int(config.get("timeout", 3600)),
+        auto_approve=bool(config.get("auto_approve", False)),
+    )
+    wait_timeout = int(config.get("wait_timeout", 3600))
+    resolved = await approval_manager.wait_for_approval(request.id, timeout=wait_timeout)
+    return {"approval_id": request.id, "status": resolved.status.value,
+            "response": resolved.response}</code></pre>
+
+<ul>
+  <li>工作流执行到该节点时，<code>request_approval</code> 发出审批（<code>action=workflow_step</code>，<code>agent_id</code> 默认 <code>"workflow"</code>，审批卡片上能看到节点描述和输入数据）。</li>
+  <li><code>wait_for_approval</code> 让工作流<strong>阻塞在节点上</strong>，最长 <code>wait_timeout</code>（默认 1 小时）。</li>
+  <li>审批通过 → 节点返回 <code>{status, response}</code> 给下游；审批拒绝 → 下游节点拿到拒绝结果，可按条件分支处理。</li>
+</ul>
+
+<div class="fig">
+<svg viewBox="0 0 860 270" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="工作流集成图">
+  <defs>
+    <linearGradient id="w1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="w2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="w3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="w4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="warr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="40" width="130" height="72" rx="14" fill="#475569"/>
+    <text x="85" y="72" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">开始</text>
+    <text x="85" y="94" text-anchor="middle" fill="#e2e8f0" font-size="11">输入数据</text>
+    <path d="M160 76 C180 76 180 76 200 76" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#warr)"/>
+    <rect x="210" y="40" width="150" height="72" rx="14" fill="url(#w1)"/>
+    <text x="285" y="72" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">Agent 节点</text>
+    <text x="285" y="94" text-anchor="middle" fill="#eef0fb" font-size="11">agent_call</text>
+    <path d="M370 76 C390 76 390 76 410 76" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#warr)"/>
+    <rect x="420" y="40" width="170" height="72" rx="14" fill="url(#w3)"/>
+    <text x="505" y="72" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">human_review 节点</text>
+    <text x="505" y="94" text-anchor="middle" fill="#fef3c7" font-size="11">⚠ 流程在此挂起</text>
+    <path d="M600 76 C620 76 620 76 640 76" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#warr)"/>
+    <rect x="650" y="40" width="130" height="72" rx="14" fill="url(#w2)"/>
+    <text x="715" y="72" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">工具节点</text>
+    <text x="715" y="94" text-anchor="middle" fill="#e0f2fe" font-size="11">tool_call</text>
+    <path d="M790 76 C810 76 810 76 820 76" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#warr)"/>
+    <rect x="790" y="130" width="50" height="10" fill="none"/>
+    <rect x="760" y="40" width="80" height="72" rx="14" fill="url(#w4)"/>
+    <text x="800" y="72" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">结束</text>
+    <text x="800" y="94" text-anchor="middle" fill="#d1fae5" font-size="11">输出</text>
+    <!-- 审批子卡 -->
+    <rect x="420" y="140" width="330" height="58" rx="12" fill="#fff7ed" stroke="#f4e0bd"/>
+    <text x="585" y="164" text-anchor="middle" fill="#7c4a03" font-size="12" font-weight="600">request_approval(action=workflow_step)</text>
+    <text x="585" y="184" text-anchor="middle" fill="#92400e" font-size="11.5">wait_for_approval 阻塞 → 最长 wait_timeout(默认 3600s)</text>
+    <!-- 通过/拒绝分支 -->
+    <path d="M505 112 C505 130 585 130 585 140" stroke="#16a34a" stroke-width="2" fill="none"/>
+    <text x="545" y="126" text-anchor="middle" fill="#16a34a" font-size="11" font-weight="600">通过 → 继续</text>
+    <path d="M505 112 C505 132 440 132 390 170" stroke="#e11d48" stroke-width="2" fill="none" stroke-dasharray="6 5" marker-end="url(#warr)"/>
+    <text x="435" y="152" text-anchor="middle" fill="#e11d48" font-size="11" font-weight="600">驳回 → 终止/分支</text>
+    <rect x="220" y="140" width="150" height="58" rx="12" fill="#fdeef2" stroke="#f6c8d4"/>
+    <text x="295" y="164" text-anchor="middle" fill="#9f1239" font-size="12" font-weight="600">下游拿到拒绝结果</text>
+    <text x="295" y="184" text-anchor="middle" fill="#be123c" font-size="11.5">{status:"rejected", response}</text>
+  </g>
+</svg>
+<div class="fig-cap">工作流中的审批闸口：执行到 <code>human_review</code> 节点即挂起，通过才放行到工具节点；驳回则把拒绝结果交给下游（可做条件分支或终止）。</div>
+</div>
+</section>
+
+<section id="frontend">
+<h2>前端审批面板</h2>
+<p>审批面板 <code>frontend/src/components/workspace/ApprovalPanel.tsx</code> 是三段式布局，对应三个 API：</p>
+
+<ul>
+  <li><strong>待审批列表</strong>：<code>GET /api/approval/pending</code>，每张卡片展示 Agent、动作类型（<code>tool_call</code> / <code>workflow_step</code>…）、描述、参数，右侧「通过 / 驳回」按钮（驳回时可填理由），点击即 <code>POST /api/approval/{id}/resolve</code>。</li>
+  <li><strong>历史</strong>：<code>GET /api/approval/history</code>，带状态徽章（通过绿 / 驳回红 / 超时黄）与解决时间。</li>
+  <li><strong>统计</strong>：<code>GET /api/approval/stats</code>，显示"进行中 N 条 / 已处理 M 条"。</li>
+</ul>
+
+<div class="card">
+  <h4>实时性怎么来？</h4>
+  <p style="margin:6px 0 0">WS 通道订阅 <code>approval.request</code> 与 <code>approval.resolved</code> 事件：新审批到达立即冒泡（带角标提醒），resolve 后自动从待办列表消失、进入历史——无需手动刷新。这也是整个工作流审批"看起来像实时协作"的关键。</p>
+</div>
+
+<div class="tip">对比 LangGraph：它的 <code>interrupt</code> 是"API 层挂起 + 外部用 <code>Command(resume)</code> 恢复"；AiCumi 是"内存 Future 挂起 + 前端面板点按钮恢复"。语义等价，但本项目把恢复动作做成了<strong>有 UI 的审批工作台</strong>，更贴近企业审批流的产品形态。</div>
+</section>
+
+<section id="compare">
+<h2>对比评分：LangGraph interrupt</h2>
+<p>业内参照：<strong>LangGraph interrupt/Command(resume)</strong>（图执行中断-恢复原语）与<strong>生产级审批流</strong>（工单/审计系统：多级审批、超时升级、留痕）。评分原则：功能完整性 × 实现深度 × 工程化 × 生产就绪度，1-5 星。</p>
+
+<table>
+  <thead><tr><th style="width:15%">维度</th><th>本项目做了什么</th><th>业内参照</th><th style="width:14%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>机制完整性</strong></td>
+      <td>完整状态机（pending→approved/rejected/timeout/cancelled）、Future 等待唤醒、工具包装器、工作流节点全打通</td>
+      <td>LangGraph interrupt / 企业审批流</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>机制闭环成立；缺审批「理由回写模型上下文」（驳回理由应让 Agent 下次避免）</td>
+    </tr>
+    <tr>
+      <td><strong>超时处理</strong></td>
+      <td><code>wait_for_approval</code> 超时置 <code>timeout</code>；<code>auto_approve_after</code> 定时自动通过</td>
+      <td>企业审批：超时升级 / 自动转交</td>
+      <td><span class="rating r-3">3.3 ★</span></td>
+      <td>超时只有"置位 + 返回"，无升级通知、无重试、无分级超时（按 action 配置不同时限）</td>
+    </tr>
+    <tr>
+      <td><strong>审批链</strong></td>
+      <td>单级单人审批；<code>agent_id</code> 维度过滤</td>
+      <td>多级审批链（一级→二级→终审）、角色权限</td>
+      <td><span class="rating r-2">2.5 ★</span></td>
+      <td>最大短板：无多级/会签/转交；可加 <code>approvers[]</code> 字段 + 链式 resolve</td>
+    </tr>
+    <tr>
+      <td><strong>前端体验</strong></td>
+      <td>待办 + 历史 + 统计三段面板，WS 实时推送，驳回理由输入</td>
+      <td>钉钉/飞书审批工作台</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>个人项目里体验完整；缺消息通知外发（IM 提醒）、批量处理</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>总体：3.4 / 5.0</strong> —— 「中断-等待-恢复」核心机制真实可用且与工作流打通，作为学习项目远超"只发个请求"的玩具实现；差距集中在生产级审批流的工程面（审批链、超时升级、审计留痕深度）。</div>
+</section>
+
+<section id="code">
+<h2>代码导读</h2>
+<table>
+  <thead><tr><th>文件</th><th>重点看什么</th><th>关键符号</th></tr></thead>
+  <tbody>
+    <tr><td><code>backend/app/approval/hitl.py</code></td><td>审批系统全部核心</td><td><code>ApprovalStatus</code> · <code>ApprovalRequest</code> · <code>HumanApprovalManager.request_approval / wait_for_approval / resolve_request</code> · <code>ApprovalRequiredTool</code> · <code>approval_manager</code> 单例</td></tr>
+    <tr><td><code>backend/app/approval/__init__.py</code></td><td>包导出</td><td>五件套 re-export</td></tr>
+    <tr><td><code>backend/app/main.py</code></td><td>REST 管理面 + 工作流接线</td><td><code>/api/approval/*</code> 四端点 · <code>_register_workflow_handlers</code> → <code>human_review_handler</code></td></tr>
+    <tr><td><code>frontend/src/components/workspace/ApprovalPanel.tsx</code></td><td>审批工作台 UI</td><td>待审批列表 / 历史 / 统计 / resolve 交互</td></tr>
+  </tbody>
+</table>
+
+<h3>学习路径</h3>
+<ol>
+  <li>先读懂 <code>wait_for_approval</code> 的 Future 机制：为什么 <code>set_result</code> 能唤醒一个早就 await 的协程？这是 asyncio 面试考点。</li>
+  <li>用 <code>ApprovalRequiredTool</code> 包一个工具，在面板上点"驳回"，观察 Agent 拿到的结构化错误。</li>
+  <li>在工作流编辑器里加一个 <code>human_review</code> 节点，跑一遍"挂起 → 审批 → 继续"。</li>
+  <li>把 <code>wait_timeout</code> 调成 5 秒，观察 <code>timeout</code> 状态落库——超时路径闭环。</li>
+  <li>自问三个面试题：中断恢复怎么实现？拒绝后如何让 Agent"长记性"？多级审批链怎么设计？</li>
+</ol>
+
+<div class="key">一句话总结：<strong>HITL = 审批状态机 + <code>asyncio.Future</code> 等待唤醒 + WS 实时通知 + 工作流闸口</strong>。它是 AiCumi 从"聊天玩具"走向"可信 Agent"的关键一步。</div>
+</section>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="记忆系统">
+<meta name="doc:category" content="核心能力">
+<meta name="doc:order" content="5">
+<meta name="doc:description" content="ChromaDB 向量记忆、对话自动存取、语义检索注入与 Embedding 降级链">
+<meta name="doc:icon" content="brain">
+<title>05 · 记忆系统</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:880px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+/* ===== 标题层级 ===== */
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+/* ===== 组件卡片 ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.card h4{margin-top:0;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+/* 提示框 */
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;letter-spacing:.02em}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+/* 评分徽章 */
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)}
+.r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)}
+.r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+/* 目录卡片 */
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.doc-toc a.doc-toc-h4{padding-left:40px;font-size:12.5px;color:var(--ink-3)}
+/* SVG 图容器 */
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.fig-cap code{font-size:11.5px}
+/* 页眉 hero */
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--primary),#8b93e8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(94,106,210,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.hero-meta b{color:var(--ink-2);font-weight:600}
+/* 里程碑时间线 */
+.timeline{list-style:none;padding:0;margin:18px 0;position:relative}
+.timeline::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,var(--primary),transparent);border-radius:2px}
+.timeline li{position:relative;padding:0 0 18px 36px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.timeline li:last-child{padding-bottom:4px}
+.timeline .t-date{font-size:12px;font-weight:600;color:var(--primary);letter-spacing:.02em}
+.timeline .t-title{font-weight:600;margin:2px 0}
+.timeline .t-desc{font-size:13.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#why" class="doc-toc-h2">为什么需要长期记忆</a>
+  <a href="#arch" class="doc-toc-h2">架构：ChromaDB 与 VectorMemory</a>
+  <a href="#entry" class="doc-toc-h3">MemoryEntry 数据结构</a>
+  <a href="#collection" class="doc-toc-h3">collection 设计与 metadata 过滤</a>
+  <a href="#auto" class="doc-toc-h2">对话自动存取</a>
+  <a href="#save" class="doc-toc-h3">写入：save_exchange</a>
+  <a href="#retrieve" class="doc-toc-h3">检索：build_memory_context</a>
+  <a href="#sentinel" class="doc-toc-h3">__MEMORY__ 哨兵与前端展示</a>
+  <a href="#api" class="doc-toc-h2">记忆管理 API</a>
+  <a href="#embedding" class="doc-toc-h2">Embedding 与降级链</a>
+  <a href="#compare" class="doc-toc-h2">对比评分：LangGraph / MemGPT</a>
+  <a href="#code" class="doc-toc-h2">代码导读</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🧠</div>
+  <div>
+    <h1>记忆系统</h1>
+    <div class="hero-meta">长期记忆 · ChromaDB 向量库 · 对话自动存取 · 语义检索注入 ｜ 建议先读 03 · 对话与编排</div>
+  </div>
+</div>
+
+<section id="why">
+<h2>为什么需要长期记忆</h2>
+<p>没有记忆的 Agent 是一条<strong>金鱼</strong>：每一次对话都从零开始，永远记不住五分钟前你告诉过它的事。想象一下——你上周告诉助理"我女儿叫小雨，今年 6 岁"，今天问它"我女儿多大了"，它却一脸茫然。这在 IM 场景下是<strong>不可接受的</strong>，因为用户默认"我们一直在聊天，你应该记得"。</p>
+
+<div class="card">
+  <h4>🐠 金鱼问题的本质</h4>
+  <ul style="margin:8px 0 0">
+    <li><strong>上下文窗口 ≠ 长期记忆</strong>：LLM 的 context window（如 128K tokens）只是"短期工作记忆"，每次调用都重新传入、用完即弃。</li>
+    <li><strong>窗口是有限的</strong>：多轮对话 + 工具结果 + RAG 片段很快撑爆窗口，还要做截断或压缩。</li>
+    <li><strong>窗口是"每问必建"的</strong>：历史消息是前端加载后拼进 prompt 的，关掉窗口再开就全丢了。</li>
+  </ul>
+</div>
+
+<p>长期记忆要解决的是：<strong>把「值得记住的」从海量对话里抽出来，跨会话、按语义检索回来，在需要的时候注入 prompt</strong>。AiCumi 的记忆系统围绕四个目标设计：</p>
+
+<ol>
+  <li><strong>自动写入</strong>：每轮对话结束自动存档（user + assistant 各一条），用户零操作。</li>
+  <li><strong>语义检索</strong>：用 Embedding 做向量相似度匹配，而不是简单关键词——"我女儿多大了"能命中"女儿 6 岁"。</li>
+  <li><strong>按 Agent 隔离</strong>：每个员工（agent_id）拥有自己的记忆，互不串台。</li>
+  <li><strong>透明可管理</strong>：检索到的记忆通过 <code>chat.memory</code> 事件展示给前端，用户能看到"AI 记了/用了什么"。</li>
+</ol>
+
+<div class="key">学习要点：记忆系统是 Agent 面试的必问点。能讲清「存储层（向量库）→ 写入策略（什么该记）→ 检索注入（怎么用）→ 遗忘策略（什么该忘）」四层，就超过大多数候选人。</div>
+</section>
+
+<section id="arch">
+<h2>架构：ChromaDB 与 VectorMemory</h2>
+<p>记忆系统的核心是一个 <strong>ChromaDB 嵌入式向量库</strong>（零额外容器，数据持久化到 <code>data/memory</code> 目录）+ 一个统一封装类 <code>VectorMemory</code>。它对外暴露 <code>add / search / get_by_agent / delete / clear / stats</code> 六个方法，上层（AgentManager、REST API）只跟这个类打交道，不感知底层是 ChromaDB 还是内存降级。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="记忆存储与检索架构图">
+  <defs>
+    <linearGradient id="m1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="m2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="m3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="m4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="m5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <filter id="mshadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1e1b4b" flood-opacity=".12"/></filter>
+    <marker id="marr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <!-- 写入链路 -->
+    <rect x="20" y="24" width="190" height="92" rx="16" fill="#475569" filter="url(#mshadow)"/>
+    <text x="115" y="56" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">① 对话消息</text>
+    <text x="115" y="78" text-anchor="middle" fill="#e2e8f0" font-size="11.5">user / assistant 原文</text>
+    <text x="115" y="96" text-anchor="middle" fill="#e2e8f0" font-size="11.5">memory_type=conversation</text>
+    <path d="M225 70 C240 70 240 70 250 70" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#marr)"/>
+    <rect x="260" y="24" width="190" height="92" rx="16" fill="url(#m3)" filter="url(#mshadow)"/>
+    <text x="355" y="56" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">② save_exchange</text>
+    <text x="355" y="78" text-anchor="middle" fill="#d1fae5" font-size="11.5">按 role 各存一条</text>
+    <text x="355" y="96" text-anchor="middle" fill="#d1fae5" font-size="11.5">metadata: role=user/assistant</text>
+    <path d="M465 70 C480 70 480 70 490 70" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#marr)"/>
+    <rect x="500" y="24" width="170" height="92" rx="16" fill="url(#m4)" filter="url(#mshadow)"/>
+    <text x="585" y="56" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">③ add + 向量化</text>
+    <text x="585" y="78" text-anchor="middle" fill="#fef3c7" font-size="11.5">_get_embedding()</text>
+    <text x="585" y="96" text-anchor="middle" fill="#fef3c7" font-size="11.5">生成 MemoryEntry</text>
+    <path d="M685 70 C700 70 700 70 710 70" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#marr)"/>
+    <rect x="720" y="24" width="120" height="92" rx="16" fill="url(#m1)" filter="url(#mshadow)"/>
+    <text x="780" y="56" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">④ ChromaDB</text>
+    <text x="780" y="78" text-anchor="middle" fill="#eef0fb" font-size="11.5">agent_memory</text>
+    <text x="780" y="96" text-anchor="middle" fill="#eef0fb" font-size="11.5">cosine 空间</text>
+    <!-- 检索链路 -->
+    <rect x="20" y="196" width="190" height="92" rx="16" fill="#475569" filter="url(#mshadow)"/>
+    <text x="115" y="228" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">⑤ 新用户消息</text>
+    <text x="115" y="250" text-anchor="middle" fill="#e2e8f0" font-size="11.5">"我女儿多大了？"</text>
+    <path d="M225 242 C240 242 240 242 250 242" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#marr)"/>
+    <rect x="260" y="196" width="190" height="92" rx="16" fill="url(#m2)" filter="url(#mshadow)"/>
+    <text x="355" y="228" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">⑥ build_memory_context</text>
+    <text x="355" y="250" text-anchor="middle" fill="#e0f2fe" font-size="11.5">retrieve_memories()</text>
+    <text x="355" y="268" text-anchor="middle" fill="#e0f2fe" font-size="11.5">asyncio.to_thread 不阻塞</text>
+    <path d="M465 242 C480 242 480 242 490 242" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#marr)"/>
+    <rect x="500" y="196" width="170" height="92" rx="16" fill="url(#m4)" filter="url(#mshadow)"/>
+    <text x="585" y="228" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">⑦ search + 过滤</text>
+    <text x="585" y="250" text-anchor="middle" fill="#fef3c7" font-size="11.5">where: agent_id</text>
+    <text x="585" y="268" text-anchor="middle" fill="#fef3c7" font-size="11.5">memory_type · top-k=5</text>
+    <path d="M685 242 C700 242 700 242 710 242" stroke="#8b8e96" stroke-width="2.5" fill="none" marker-end="url(#marr)"/>
+    <rect x="720" y="196" width="120" height="92" rx="16" fill="url(#m3)" filter="url(#mshadow)"/>
+    <text x="780" y="228" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">⑧ top-k 注入</text>
+    <text x="780" y="250" text-anchor="middle" fill="#d1fae5" font-size="11.5">拼进 prompt</text>
+    <text x="780" y="268" text-anchor="middle" fill="#d1fae5" font-size="11.5">__MEMORY__ 展示</text>
+    <!-- 存取共享向量库 -->
+    <path d="M780 116 L780 186" stroke="#5e6ad2" stroke-width="2" fill="none" stroke-dasharray="6 5" marker-end="url(#marr)"/>
+    <text x="792" y="156" fill="#5e6ad2" font-size="11" font-weight="600">query</text>
+    <!-- in-memory 降级 -->
+    <path d="M115 116 L115 156 L640 156 L640 186" stroke="#94a3b8" stroke-width="2" fill="none" stroke-dasharray="4 5"/>
+    <text x="380" y="148" text-anchor="middle" fill="#64748b" font-size="11">降级：ChromaDB 不可用 → _in_memory_store 关键词兜底</text>
+  </g>
+</svg>
+<div class="fig-cap">记忆双链路：上半是「写入」——对话消息 → 分条 → 向量化 → ChromaDB；下半是「检索」——新消息 → 语义搜索 + metadata 过滤 → top-k 注入 prompt。两条链共享同一个向量库。</div>
+</div>
+
+<h3 id="entry">MemoryEntry 数据结构</h3>
+<p>一条记忆是一个 <code>MemoryEntry</code> dataclass（<code>backend/app/memory/vector_memory.py</code>），字段设计决定了"能过滤什么、能展示什么"：</p>
+
+<table>
+  <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>id</code></td><td><code>str</code></td><td><code>uuid4</code> 生成，作为 ChromaDB 的 id 与前端删除句柄</td></tr>
+    <tr><td><code>content</code></td><td><code>str</code></td><td>记忆原文（用户消息或助手回复）</td></tr>
+    <tr><td><code>agent_id</code></td><td><code>str</code></td><td>所属员工，记忆隔离的第一维度</td></tr>
+    <tr><td><code>memory_type</code></td><td><code>str</code></td><td>记忆类型：<code>conversation</code> / <code>fact</code> / <code>preference</code> / <code>task</code></td></tr>
+    <tr><td><code>metadata</code></td><td><code>Dict</code></td><td>扩展属性（如 <code>role=user</code>），平铺进 ChromaDB metadata 供过滤</td></tr>
+    <tr><td><code>created_at / updated_at</code></td><td><code>str</code></td><td>ISO 时间戳，历史排序与展示</td></tr>
+    <tr><td><code>embedding</code></td><td><code>List[float]</code></td><td>向量本身，仅内存态持有，不落 ChromaDB 文档字段</td></tr>
+  </tbody>
+</table>
+
+<h3 id="collection">collection 设计与 metadata 过滤</h3>
+<p>ChromaDB 侧的设计很朴素但实用：<strong>一个 collection 装所有人的记忆，靠 metadata 过滤实现隔离</strong>，而不是每人一个 collection（那样 collection 数量会爆炸）。</p>
+
+<pre><code># backend/app/memory/vector_memory.py · VectorMemory.__init__ / _init_chromadb
+self._client = chromadb.PersistentClient(
+    path=self.persist_dir,                      # data/memory，进程重启不丢
+    settings=Settings(anonymized_telemetry=False),
+)
+self._collection = self._client.get_or_create_collection(
+    name=self.collection_name,                  # "agent_memory"
+    metadata={"hnsw:space": "cosine"},          # 余弦相似度空间
+)
+# add() 时把过滤字段写进 metadata
+self._collection.add(
+    ids=[entry.id], documents=[content], embeddings=[embedding],
+    metadatas=[{"agent_id": agent_id, "memory_type": memory_type,
+                "created_at": entry.created_at, **(metadata or {})}],
+)
+# search() 时用 where 过滤
+where_filter = {}
+if agent_id:   where_filter["agent_id"] = agent_id
+if memory_type:where_filter["memory_type"] = memory_type
+results = self._collection.query(
+    query_embeddings=[query_embedding], n_results=n_results,
+    where=where_filter if where_filter else None,
+)</code></pre>
+
+<div class="grid2">
+  <div class="card">
+    <h4>memory_type 维度（设计预留）</h4>
+    <ul style="margin:8px 0 0">
+      <li><code>conversation</code>：对话原文，当前唯一实际写入的类型</li>
+      <li><code>fact</code>：抽取出的客观事实（"女儿 6 岁"）</li>
+      <li><code>preference</code>：用户偏好（"喜欢简洁回答"）</li>
+      <li><code>task</code>：任务状态（"待办 X 进行中"）</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>为什么是"单 collection + 过滤"</h4>
+    <ul style="margin:8px 0 0">
+      <li>N 个 Agent 只需 1 个 collection，管理简单</li>
+      <li>ChromaDB <code>where</code> 支持等值过滤，检索时先过滤再算相似度</li>
+      <li>未来按类型检索（只看偏好）可直接复用 <code>memory_type</code> 过滤</li>
+    </ul>
+  </div>
+</div>
+
+<div class="tip">注意双写策略：<code>add()</code> 写入 ChromaDB 的同时，<strong>总会追加一份到进程内 <code>_in_memory_store</code></strong>；<code>get_by_agent()</code> 会合并两个来源并按 id 去重。这让"ChromaDB 不可用/本地哈希 Embedding"时记忆依然可见——降级不是坏了，而是换一种更笨的方式工作。</div>
+</section>
+
+<section id="auto">
+<h2>对话自动存取</h2>
+<p>记忆不是靠用户手动添加，而是<strong>挂在聊天主链路上自动完成</strong>。入口在 <code>backend/app/agents/agent_manager.py</code>，三个方法形成闭环：<code>save_exchange</code>（写）→ <code>retrieve_memories / build_memory_context</code>（读）。</p>
+
+<h3 id="save">写入：save_exchange</h3>
+<p>每轮对话结束后调用，<strong>用户消息与助手回复各存一条</strong>（都用 <code>conversation</code> 类型，用 <code>metadata.role</code> 区分身份）：</p>
+
+<pre><code># backend/app/agents/agent_manager.py · save_exchange
+async def save_exchange(self, agent_id, user_message, assistant_reply):
+    if not self.memory_enabled:
+        return
+    from ..memory import vector_memory
+    if user_message and user_message.strip():
+        await asyncio.to_thread(
+            vector_memory.add, user_message, agent_id, "conversation",
+            {"role": "user"},
+        )
+    if assistant_reply and assistant_reply.strip():
+        await asyncio.to_thread(
+            vector_memory.add, assistant_reply, agent_id, "conversation",
+            {"role": "assistant"},
+        )</code></pre>
+
+<div class="warn">这里有个值得讲的取舍：<strong>原文即记忆</strong>，没有做摘要/抽取。优点是无损、零额外模型调用；缺点是噪声多、检索精度受限于 Embedding。业界（MemGPT）会做"回忆压缩"，这是本项目列在"差距与改进"里的第一项。</div>
+
+<h3 id="retrieve">检索：build_memory_context</h3>
+<p>发送消息前，<code>build_memory_context</code> 先用 <code>retrieve_memories</code> 做向量检索，命中则把记忆<strong>格式化拼进消息前面</strong>，作为上下文喂给模型。注意 <code>asyncio.to_thread</code>：ChromaDB 是同步库，放进线程池避免阻塞事件循环——这是 Python async 项目接同步库的标准姿势。</p>
+
+<pre><code># backend/app/agents/agent_manager.py · retrieve_memories / build_memory_context
+results = await asyncio.to_thread(
+    vector_memory.search, query=message, agent_id=agent_id, n_results=n_results,
+)
+# 命中则构造"记忆上下文 + 当前消息"
+lines = [f"- （{m['memory_type']}）{m['content']}" for m in memories]
+context = (
+    "以下是长期记忆中与当前话题相关的信息，供你参考：\n"
+    + "\n".join(lines)
+    + "\n\n【当前用户消息】\n"
+    + message
+)</code></pre>
+
+<h3 id="sentinel">__MEMORY__ 哨兵与前端展示</h3>
+<p>流式场景下，<code>stream_message</code> 在吐出第一个 token 之前，<strong>先 yield 一个 <code>__MEMORY__:&lt;json&gt;</code> 哨兵行</strong>，携带检索到的记忆列表。WS 处理器把它翻译成 <code>chat.memory</code> 事件推给前端，前端在气泡上渲染"记忆徽章"（<code>frontend/src/components/workspace/MessageBubble.tsx</code>）——用户能直观看到 AI 用了哪些记忆。</p>
+
+<div class="fig">
+<svg viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="对话自动存取时序图">
+  <defs>
+    <linearGradient id="t1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <linearGradient id="t2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="t3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="t4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <marker id="tarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="30" width="150" height="42" rx="12" fill="url(#t1)"/><text x="95" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">前端 Web UI</text>
+    <rect x="230" y="30" width="150" height="42" rx="12" fill="url(#t2)"/><text x="305" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">WS 管理器</text>
+    <rect x="440" y="30" width="160" height="42" rx="12" fill="url(#t3)"/><text x="520" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">AgentManager</text>
+    <rect x="660" y="30" width="180" height="42" rx="12" fill="url(#t4)"/><text x="750" y="56" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">VectorMemory / AG2</text>
+    <line x1="95" y1="72" x2="95" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="305" y1="72" x2="305" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="520" y1="72" x2="520" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <line x1="750" y1="72" x2="750" y2="326" stroke="#c7cbe8" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <g font-size="11.5" fill="#44475f">
+      <path d="M95 92 C170 92 230 92 292 92" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#tarr)"/>
+      <text x="192" y="86" text-anchor="middle">1. chat.send{content}</text>
+      <path d="M520 118 C600 118 660 118 736 118" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#tarr)"/>
+      <text x="628" y="112" text-anchor="middle">2. build_memory_context → search</text>
+      <path d="M750 146 C700 146 640 146 536 146" stroke="#10b981" stroke-width="2" fill="none"/>
+      <text x="642" y="140" text-anchor="middle">3. top-k 记忆 + 原消息</text>
+      <path d="M520 172 C440 172 380 172 312 172" stroke="#5e6ad2" stroke-width="2" fill="none"/>
+      <text x="416" y="166" text-anchor="middle">4. yield __MEMORY__:json</text>
+      <path d="M305 198 C230 198 170 198 110 198" stroke="#5e6ad2" stroke-width="2" fill="none" marker-end="url(#tarr)"/>
+      <text x="208" y="192" text-anchor="middle">5. chat.memory 事件 → 气泡徽章</text>
+      <path d="M95 224 C170 224 230 224 292 224" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="192" y="218" text-anchor="middle">6. 流式回复(思考剥离)</text>
+      <path d="M520 250 C600 250 660 250 736 250" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="628" y="244" text-anchor="middle">7. 落库 SQLite</text>
+      <path d="M750 278 C700 278 640 278 536 278" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="642" y="272" text-anchor="middle">8. save_exchange 各存一条</text>
+      <path d="M520 304 C440 304 380 304 312 304" stroke="#8b93e8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+      <text x="416" y="298" text-anchor="middle">9. 下轮对话即可检索到</text>
+    </g>
+  </g>
+</svg>
+<div class="fig-cap">对话自动存取闭环：检索（读）在回复前，写入（存）在回复后——先"想起"再"回答"，答完"记下"，下次"想起"。</div>
+</div>
+
+<div class="note">记忆开关：<code>AgentManager.memory_enabled</code> 控制整个记忆链路的启停；关闭时 <code>build_memory_context</code> 直接返回原消息、<code>save_exchange</code> 直接 return，对上层完全透明。</div>
+</section>
+
+<section id="api">
+<h2>记忆管理 API</h2>
+<p>后端暴露一组 REST 端点（<code>backend/app/main.py</code>），前端在成员管理页的「记忆」标签（<code>frontend/src/components/workspace/MemberManagement.tsx</code> 的 <code>MemoryView</code>）调用，支持查看、搜索、手动添加与清空。</p>
+
+<table>
+  <thead><tr><th>方法 + 路径</th><th>请求体</th><th>返回</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /api/memory/stats</code></td><td>—</td><td>系统统计</td><td>ChromaDB 可用性、条数、Embedding 模型</td></tr>
+    <tr><td><code>POST /api/memory/{agent_id}/add</code></td><td><code>content, memory_type, metadata?</code></td><td><code>memory</code></td><td>手动添加一条记忆</td></tr>
+    <tr><td><code>POST /api/memory/{agent_id}/search</code></td><td><code>query, n_results, memory_type?</code></td><td><code>results[]</code></td><td>语义搜索该员工的记忆</td></tr>
+    <tr><td><code>GET /api/memory/{agent_id}/list</code></td><td><code>limit=50</code></td><td><code>memories[]</code></td><td>列出该员工全部记忆（合并双存储）</td></tr>
+    <tr><td><code>DELETE /api/memory/{memory_id}</code></td><td>—</td><td><code>ok</code></td><td>按 id 删除（404 兜底）</td></tr>
+    <tr><td><code>POST /api/memory/{agent_id}/clear</code></td><td>—</td><td><code>cleared</code></td><td>清空该员工全部记忆</td></tr>
+  </tbody>
+</table>
+
+<p><code>stats()</code> 是理解系统健康度的入口，返回字段恰好对应三个"可用性维度"：</p>
+
+<pre><code># backend/app/memory/vector_memory.py · stats
+{
+  "chromadb_available": True,      # 向量库是否可用
+  "embedding_available": True,     # 是否有外部 Embedding（否则走本地哈希）
+  "chromadb_count": 128,           # 向量库条数
+  "in_memory_count": 128,          # 进程内备份条数
+  "persist_dir": "data/memory",
+  "embedding_model": "text-embedding-3-small",
+}</code></pre>
+
+<div class="tip">面试可讲点：<code>clear(agent_id)</code> 支持按员工清空；<code>clear(None)</code> 则<strong>删除整个 collection 再重建</strong>——用"重建代替清空"避免残留索引状态。</div>
+</section>
+
+<section id="embedding">
+<h2>Embedding 与降级链</h2>
+<p>向量记忆的命脉是 Embedding。AiCumi 设计了一条<strong>三级降级链</strong>，保证任何环境下记忆系统都能跑：</p>
+
+<ol>
+  <li><strong>模型配置中心</strong>：优先取 <code>model_service.get_default_embedding()</code>（统一配置中心的 Embedding 模型 + 解密后的 key）。</li>
+  <li><strong>环境变量</strong>：无配置时回退 <code>OPENAI_API_KEY / OPENAI_BASE_URL</code>（OpenAI 兼容端点）。</li>
+  <li><strong>本地哈希 Embedding</strong>：什么都没有时，用 <code>_local_embedding()</code> 做确定性降级——不依赖任何外部服务。</li>
+</ol>
+
+<div class="fig">
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Embedding 降级链">
+  <defs>
+    <linearGradient id="e1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="e2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="e3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="e4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e6ad2"/><stop offset="1" stop-color="#8b93e8"/></linearGradient>
+    <marker id="earr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b8e96"/></marker>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <text x="30" y="30" fill="#44475f" font-size="12.5" font-weight="700">Embedding 三级降级（_get_embedding）</text>
+    <rect x="20" y="44" width="250" height="76" rx="14" fill="url(#e1)"/>
+    <text x="145" y="72" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">① 模型配置中心</text>
+    <text x="145" y="94" text-anchor="middle" fill="#d1fae5" font-size="11.5">default_embedding + 解密 key</text>
+    <path d="M285 82 C310 82 310 82 330 82" stroke="#94a3b8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#earr)"/>
+    <text x="308" y="74" text-anchor="middle" fill="#64748b" font-size="10.5">失败↓</text>
+    <rect x="340" y="44" width="240" height="76" rx="14" fill="url(#e2)"/>
+    <text x="460" y="72" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">② 环境变量</text>
+    <text x="460" y="94" text-anchor="middle" fill="#e0f2fe" font-size="11.5">OPENAI_API_KEY / BASE_URL</text>
+    <path d="M595 82 C620 82 620 82 640 82" stroke="#94a3b8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#earr)"/>
+    <text x="618" y="74" text-anchor="middle" fill="#64748b" font-size="10.5">失败↓</text>
+    <rect x="650" y="44" width="190" height="76" rx="14" fill="url(#e3)"/>
+    <text x="745" y="72" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">③ 本地哈希</text>
+    <text x="745" y="94" text-anchor="middle" fill="#fef3c7" font-size="11.5">_local_embedding 256 维</text>
+    <text x="30" y="160" fill="#44475f" font-size="12.5" font-weight="700">检索同样有兜底（search）</text>
+    <rect x="20" y="172" width="330" height="64" rx="14" fill="url(#e4)"/>
+    <text x="185" y="198" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">ChromaDB query（向量相似度）</text>
+    <text x="185" y="218" text-anchor="middle" fill="#eef0fb" font-size="11.5">查询 Embedding → cosine 近邻 → where 过滤</text>
+    <path d="M365 204 C410 204 410 204 450 204" stroke="#94a3b8" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#earr)"/>
+    <text x="408" y="196" text-anchor="middle" fill="#64748b" font-size="10.5">失败/空↓</text>
+    <rect x="460" y="172" width="380" height="64" rx="14" fill="#475569"/>
+    <text x="650" y="198" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">_in_memory_search（关键词包含）</text>
+    <text x="650" y="218" text-anchor="middle" fill="#e2e8f0" font-size="11.5">query 子串匹配 content，支持 agent_id / memory_type 过滤</text>
+  </g>
+</svg>
+<div class="fig-cap">两条降级链：Embedding 三级（配置 → 环境变量 → 本地哈希）；检索两级（向量 → 关键词）。降级保证「功能永不缺席」，代价是精度。</div>
+</div>
+
+<p><code>_local_embedding</code> 的原理值得展开——它是典型的<strong>确定性词袋哈希向量</strong>：</p>
+
+<pre><code># backend/app/memory/vector_memory.py · _local_embedding（要点摘录）
+vec = [0.0] * dim                                  # 256 维
+for tok in re.findall(r"[\w\u4e00-\u9fff]+", (text or "").lower()):
+    h = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16)
+    idx = h % dim                                  # 词 → 固定桶
+    sign = 1.0 if (h >> 16) & 1 else -1.0          # 词 → 正负号
+    vec[idx] += sign
+norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+return [v / norm for v in vec]                     # L2 归一化</code></pre>
+
+<ul>
+  <li>中文按 <code>\u4e00-\u9fff</code> 切词（<code>re.findall</code> 按连续字符块切，非分词器），英文按单词。</li>
+  <li>每个词通过 md5 哈希映射到固定桶并带上符号，<strong>相同文本永远得到相同向量</strong>——所以能持久化到 ChromaDB 且可复现。</li>
+  <li>L2 归一化后余弦相似度 ≈ 点积，词重叠越多越相似——本质是"带权关键词匹配"。</li>
+  <li>局限：无语义泛化（"女儿"与"孩子"不同桶），仅作兜底。</li>
+</ul>
+
+<div class="warn">工程启示：<strong>降级不是可选项而是必选项</strong>。真实环境里 Embedding 服务可能限流/欠费/断网，向量库可能损坏——一条优雅的降级链让系统"带伤运行"而不是"整体瘫痪"，这在面试里是很好的系统设计谈资。</div>
+</section>
+
+<section id="compare">
+<h2>对比评分：LangGraph / MemGPT</h2>
+<p>业内参照：<strong>LangGraph Checkpointer</strong>（会话状态持久化 + 消息列表，无语义检索）与 <strong>MemGPT</strong>（分层记忆：核心/工作/存档，带记忆压缩与召回）。评分原则：功能完整性 × 实现深度 × 工程化 × 生产就绪度，1-5 星。</p>
+
+<table>
+  <thead><tr><th style="width:15%">维度</th><th>本项目做了什么</th><th>业内参照</th><th style="width:14%">评分</th><th>差距与改进</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>持久化</strong></td>
+      <td>ChromaDB PersistentClient 落盘 <code>data/memory</code>，进程重启不丢；内存双写兜底</td>
+      <td>LangGraph Checkpointer（SQLite/PG 后端）</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>单机够用；无副本/备份策略，多实例共享需独立向量服务</td>
+    </tr>
+    <tr>
+      <td><strong>语义检索</strong></td>
+      <td>向量 Embedding + cosine 近邻 + <code>agent_id/memory_type</code> metadata 过滤 + 关键词兜底</td>
+      <td>MemGPT 分层召回 / 混合检索</td>
+      <td><span class="rating r-4">3.8 ★</span></td>
+      <td>链路完整；缺 Rerank、时间衰减权重、"记忆-消息"分层（MemGPT 的核心）</td>
+    </tr>
+    <tr>
+      <td><strong>自动写入</strong></td>
+      <td><code>save_exchange</code> 每轮自动存 user+assistant 两条，挂在聊天主链路，零人工</td>
+      <td>MemGPT 事件驱动写入</td>
+      <td><span class="rating r-4">4.0 ★</span></td>
+      <td>原文即记忆、无去重/合并；相邻轮次重复信息会堆积（需写入压缩）</td>
+    </tr>
+    <tr>
+      <td><strong>遗忘策略</strong></td>
+      <td>仅提供手动 delete / clear；无自动遗忘与重要性评分</td>
+      <td>MemGPT 存储层级 + 驱逐</td>
+      <td><span class="rating r-2">2.5 ★</span></td>
+      <td>最大短板：缺记忆重要性打分、自动压缩、过期淘汰；可加"合并相似记忆"后台任务</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>总体：记忆闭环（写 → 存 → 检 → 注入 → 展示）真实完整，3.6 / 5.0</strong>。与 LangGraph Checkpointer（偏"状态快照"）相比，本项目是真正的"语义记忆"；与 MemGPT 相比，缺分层与遗忘。改进路线清晰：写入压缩（LLM 摘要）→ 记忆评分 → 自动合并。</div>
+</section>
+
+<section id="code">
+<h2>代码导读</h2>
+<p>建议按「数据模型 → 存储实现 → 上层集成 → API → 前端」的顺序读，每条都标注了关键函数：</p>
+
+<table>
+  <thead><tr><th>文件</th><th>重点看什么</th><th>关键符号</th></tr></thead>
+  <tbody>
+    <tr><td><code>backend/app/memory/vector_memory.py</code></td><td>数据模型 + 存储实现 + 降级</td><td><code>MemoryEntry</code> · <code>VectorMemory.add/search/get_by_agent/delete/clear/stats</code> · <code>_get_embedding</code> · <code>_local_embedding</code> · <code>_in_memory_search</code></td></tr>
+    <tr><td><code>backend/app/memory/__init__.py</code></td><td>全局实例与注入</td><td><code>init_memory(model_service)</code> · <code>vector_memory</code> 全局单例</td></tr>
+    <tr><td><code>backend/app/agents/agent_manager.py</code></td><td>对话主链路集成（读 + 写 + 哨兵）</td><td><code>retrieve_memories</code> · <code>build_memory_context</code> · <code>save_exchange</code> · <code>stream_message</code>（<code>__MEMORY__</code> 哨兵）· <code>memory_enabled</code></td></tr>
+    <tr><td><code>backend/app/main.py</code></td><td>REST 管理面</td><td><code>/api/memory/*</code> 六个端点 · <code>MemoryAddRequest / MemorySearchRequest</code></td></tr>
+    <tr><td><code>frontend/src/components/workspace/MemberManagement.tsx</code></td><td>成员记忆管理 UI</td><td><code>MemoryView</code>（memory 标签页）</td></tr>
+    <tr><td><code>frontend/src/components/workspace/MessageBubble.tsx</code></td><td>记忆徽章展示</td><td><code>memories[]</code> 渲染 <code>memory_type</code> 徽章</td></tr>
+  </tbody>
+</table>
+
+<h3>学习路径</h3>
+<ol>
+  <li>先跑通 <code>VectorMemory</code>：单测里 <code>add → search</code> 一条记忆，观察返回结构与相似度排序。</li>
+  <li>追 <code>stream_message</code>：看 <code>__MEMORY__</code> 哨兵何时 yield、WS 层如何翻译成 <code>chat.memory</code>。</li>
+  <li>关掉模型配置中心再看 <code>stats()</code>：确认 <code>embedding_available=False</code> 时系统仍可用——降级链生效。</li>
+  <li>读 <code>save_exchange</code> 的调用点（消息收尾处），理解"写发生在回复之后"。</li>
+  <li>自问三个面试题：为什么用单 collection + metadata 过滤？为什么 <code>asyncio.to_thread</code>？遗忘策略怎么补？</li>
+</ol>
+
+<div class="key">一句话总结：<strong>记忆 = 向量库存储 + 对话自动写入 + top-k 语义注入 + 三级降级保底</strong>，并通过 <code>chat.memory</code> 把"AI 记了什么"透明地交还用户。</div>
+</section>
+
+</main>
+</body>
+</html>
