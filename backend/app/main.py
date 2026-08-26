@@ -94,8 +94,19 @@ async def lifespan(app: FastAPI):
         if settings.mock_mode is not True:
             service = ModelManagementService(db, model_encryptor)
             configs = service.get_all_configs()
-            default = next((c for c in configs if c.default_model), None) or (
-                configs[0] if configs else None
+            # 默认对话模型：取 default_model 且非 embedding/搜索类的第一条；
+            # 兜底选第一条（历史行为）。embedding 模型不能当对话模型用
+            # （会报 400 input.contents），必须跳过。
+            _NON_CHAT_MARKERS = ("embedding", "tavily", "bocha", "web-search", "rerank")
+            default = next(
+                (
+                    c for c in configs
+                    if c.default_model and not any(m in (c.model_name or "").lower() for m in _NON_CHAT_MARKERS)
+                ),
+                None,
+            ) or next(
+                (c for c in configs if not any(m in (c.model_name or "").lower() for m in _NON_CHAT_MARKERS)),
+                None,
             )
             if default:
                 api_key = service.get_decrypted_key(default.id)
@@ -697,7 +708,8 @@ async def websocket_endpoint(websocket: WebSocket):
                             history_rows = load_history(db, room_id, limit=agent_manager.HISTORY_WINDOW_TURNS if agent_manager else 10)
                         finally:
                             db.close()
-                        history = [{"role": m.role, "content": m.content} for m in history_rows]
+                        # agentId 供群聊引擎还原"谁说了什么"的上下文
+                        history = [{"role": m.role, "content": m.content, "agentId": m.agent_id} for m in history_rows]
                         # Persist the user message
                         db = next(get_db())
                         try:

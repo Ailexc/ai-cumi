@@ -1033,12 +1033,22 @@ class GroupChatManager:
         """
         Stream group chat responses. Yields (agent_id, chunk, message_id) tuples.
 
-        Each responding agent gets its own message_id so the frontend can render
-        them as separate messages. ``history`` carries recent room turns so every
-        responding agent shares the same within-session context.
+        L2 会话协调层：优先走框架原生 SelectorGroupChat 引擎（成员共享对话流、
+        可见彼此发言、自动调度/@路由），不可用时回退旧的并行独立响应路径
+        （mock / 无模型开发环境）。``history`` 携带近期房间轮次供上下文衔接。
         """
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
+
+        from .group_engine import TeamEngineUnavailable, stream_team_response
+
+        members = list(self.group_chats[room_id]["agents"])
+        try:
+            async for item in stream_team_response(self.agent_manager, members, message, mentions=mentions, history=history):
+                yield item
+            return
+        except TeamEngineUnavailable as e:
+            print(f"ℹ️ team engine unavailable ({e}) — legacy parallel fallback")
 
         for agent_id in self._resolve_targets(room_id, mentions):
             message_id = str(uuid.uuid4())
@@ -1065,6 +1075,15 @@ class GroupChatManager:
         """
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
+
+        # L2：优先框架原生引擎（与 stream_send 同一套行为）
+        from .group_engine import TeamEngineUnavailable, collect_team_response
+
+        members = list(self.group_chats[room_id]["agents"])
+        try:
+            return await collect_team_response(self.agent_manager, members, message, mentions=mentions)
+        except TeamEngineUnavailable as e:
+            print(f"ℹ️ team engine unavailable ({e}) — legacy parallel fallback")
 
         target_agents = self._resolve_targets(room_id, mentions)
 
