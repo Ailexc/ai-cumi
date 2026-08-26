@@ -1215,6 +1215,26 @@ async def clear_memories(agent_id: str):
     return {"ok": True, "cleared": count}
 
 
+class MemoryScopeRequest(BaseModel):
+    """Memory scope upgrade schema (L5 共享状态层)."""
+    memory_ids: List[str]
+    scope: str  # "private" or "team"
+
+
+@app.post("/api/memory/scope")
+async def set_memory_scope(request: MemoryScopeRequest):
+    """手动升格/降格记忆作用域：team=全团队可检索，private=仅属主可见。"""
+    from .memory import vector_memory
+    if request.scope not in ("private", "team"):
+        raise HTTPException(status_code=400, detail="scope must be 'private' or 'team'")
+    
+    updated = 0
+    for mid in request.memory_ids:
+        if vector_memory.update_scope(mid, request.scope):
+            updated += 1
+    return {"ok": True, "updated": updated, "requested": len(request.memory_ids)}
+
+
 # ---- Human-in-the-Loop API ----
 
 class ApprovalResolveRequest(BaseModel):

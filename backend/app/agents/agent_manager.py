@@ -157,6 +157,8 @@ class AgentManager:
 
         # Long-term memory integration (dynamic retrieval + auto-save).
         self.memory_enabled = os.getenv("MEMORY_ENABLED", "true").lower() not in ("false", "0", "")
+        # L5 共享状态层：是否允许检索团队共享记忆（scope=team）
+        self.team_memory_enabled = os.getenv("TEAM_MEMORY_ENABLED", "true").lower() not in ("false", "0", "")
 
         # Initialize built-in tools
         register_builtin_tools()
@@ -536,23 +538,34 @@ class AgentManager:
     # ---- Long-term memory integration ----
 
     async def retrieve_memories(self, agent_id: str, message: str, n_results: int = 5) -> List[Dict[str, Any]]:
-        """Retrieve relevant long-term memories for this message (vector search)."""
+        """Retrieve relevant long-term memories for this message (vector search).
+
+        L5：team_memory_enabled 开启时检索范围为「本人私有 ∪ 团队共享」，
+        并为跨成员记忆标注来源（"来自小研的记忆"）。
+        """
         try:
             from ..memory import vector_memory
             if vector_memory is None:
                 return []
             results = await asyncio.to_thread(
-                vector_memory.search, query=message, agent_id=agent_id, n_results=n_results,
+                vector_memory.search, query=message, agent_id=agent_id,
+                n_results=n_results, include_team=self.team_memory_enabled,
             )
-            return [
-                {
+            out = []
+            for r in results:
+                item = {
                     "id": r.id,
                     "content": r.content,
                     "memory_type": r.memory_type,
                     "created_at": r.created_at,
                 }
-                for r in results
-            ]
+                # 来源标注：团队共享且非本人 → 标注属主
+                if r.agent_id and r.agent_id != agent_id:
+                    owner = self.agents.get(r.agent_id) or {}
+                    item["source"] = owner.get("name") or r.agent_id
+                    item["scope"] = "team"
+                out.append(item)
+            return out
         except Exception as e:
             print(f"⚠️ memory retrieve error for {agent_id}: {e}")
             return []
@@ -568,7 +581,12 @@ class AgentManager:
         memories = await self.retrieve_memories(agent_id, message, n_results)
         if not memories:
             return message, []
-        lines = [f"- （{m['memory_type']}）{m['content']}" for m in memories]
+        lines = []
+        for m in memories:
+            prefix = f"（{m['memory_type']}）"
+            if m.get("source"):
+                prefix += f"［来自{m['source']}的记忆］"
+            lines.append(f"- {prefix}{m['content']}")
         context = (
             "以下是长期记忆中与当前话题相关的信息，供你参考：\n"
             + "\n".join(lines)

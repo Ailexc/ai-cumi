@@ -33,3 +33,30 @@ async def put_rag(payload: RagSettingsPayload, db: Session = Depends(get_db)):
     cfg = RagConfig(**payload.dict())
     updated = update_rag_settings(db, cfg)
     return {"ok": True, "settings": updated.__dict__}
+
+
+# ---- L5 共享状态层：团队共享记忆开关 ----
+
+class TeamMemoryPayload(BaseModel):
+    enabled: bool
+
+
+@router.get("/team-memory")
+async def get_team_memory():
+    """查询团队共享记忆检索开关（运行时读取，可被环境变量初始覆盖）。"""
+    from .. import state
+    am = state.agent_manager
+    if not am:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    return {"ok": True, "enabled": am.team_memory_enabled}
+
+
+@router.put("/team-memory")
+async def put_team_memory(payload: TeamMemoryPayload):
+    """切换团队共享记忆检索开关（立即生效，无需重启）。"""
+    from .. import state
+    am = state.agent_manager
+    if not am:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    am.team_memory_enabled = payload.enabled
+    return {"ok": True, "enabled": am.team_memory_enabled}
