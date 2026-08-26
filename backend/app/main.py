@@ -258,6 +258,18 @@ app.include_router(knowledge_router)
 app.include_router(settings_router)
 app.include_router(docs_router)
 
+# L4 互操作协议层：A2A（Agent2Agent）协议暴露
+from .a2a import router as a2a_router, build_platform_card
+
+
+app.include_router(a2a_router)
+
+
+@app.get("/.well-known/agent-card.json")
+async def a2a_well_known_card():
+    """平台级 A2A Agent Card（协议约定的发现路径）。"""
+    return build_platform_card()
+
 
 # Pydantic models
 class KnowledgeScope(BaseModel):
