@@ -39,6 +39,7 @@ except ImportError:
 # Import tool registry
 from ..tools.registry import tool_registry
 from ..tools.builtin import register_builtin_tools
+from ..tools.delegate import make_delegate_tool
 
 # L1 团队认知层：花名册构建（纯函数，传 agents dict 避免循环导入）
 from .team_context import build_team_roster
@@ -53,6 +54,8 @@ TOOL_USE_POLICY = (
     "1. 只有用户需求确实需要时才调用工具；日常寒暄、打招呼等无需调用工具。\n"
     "2. 工具返回的是结构化结果，必须用自然语言向用户转述，禁止把 JSON 直接发给用户。\n"
     "3. 工具调用失败时，用自然语言向用户友好说明，不要回显原始错误。\n"
+    "4. 需要其他成员的专业能力时（见团队通讯录），可通过 delegate_to_colleague "
+    "委派同事：把问题表述完整，收到结果后用自己的口吻向用户转述；不要频繁委派。\n"
 )
 
 
@@ -225,6 +228,11 @@ class AgentManager:
         tool_names = info.get("tools", [])
         if tool_names and HAS_REAL_AGENT:
             agent_tools = tool_registry.get_ag2_tools(tool_names)
+        # L3 组织编排层（Handoff）：每个成员都具备向同事委派的组织能力，
+        # 与业务工具列表解耦——这是"团队身份"自带的能力，不是领域工具。
+        delegate_tool = make_delegate_tool(agent_id, self)
+        if delegate_tool is not None:
+            agent_tools.append(delegate_tool)
         
         system_message = (info.get("persona") or "").strip()
         # L1 团队认知：注入实时团队花名册（同事是谁、各自职责与专长工具）。
