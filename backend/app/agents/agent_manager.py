@@ -890,12 +890,14 @@ class GroupChatManager:
                 existing.name = info["name"]
                 existing.owner_agent_id = info["owner"]
                 existing.member_agent_ids = json.dumps(info["agents"])
+                existing.mode = info.get("mode", "free")
             else:
                 db.add(GroupRoom(
                     room_id=room_id,
                     name=info["name"],
                     owner_agent_id=info["owner"],
                     member_agent_ids=json.dumps(info["agents"]),
+                    mode=info.get("mode", "free"),
                 ))
             db.commit()
         except Exception as e:
@@ -929,6 +931,14 @@ class GroupChatManager:
         from ..models import GroupRoom
         db = next(self._db_factory())
         try:
+            # 轻量迁移：旧库缺 mode 列时补上（Phase 3b 主管模式）
+            from sqlalchemy import text
+            try:
+                db.execute(text("ALTER TABLE group_rooms ADD COLUMN mode VARCHAR(20) DEFAULT 'free'"))
+                db.commit()
+                print("🛠️ group_rooms: added missing column 'mode'")
+            except Exception:
+                db.rollback()  # 列已存在
             rows = db.query(GroupRoom).all()
             for row in rows:
                 agents = json.loads(row.member_agent_ids)
@@ -940,6 +950,7 @@ class GroupChatManager:
                         "name": row.name,
                         "agents": valid_agents,
                         "owner": row.owner_agent_id or valid_agents[0],
+                        "mode": getattr(row, "mode", None) or "free",
                         "created_at": row.created_at.isoformat() if row.created_at else "",
                     }
                     print(f"📂 Restored group room: {row.room_id} ('{row.name}')")
@@ -954,6 +965,7 @@ class GroupChatManager:
         name: str,
         agent_ids: List[str],
         owner_agent_id: Optional[str] = None,
+        mode: str = "free",
     ):
         """
         Create a new group chat.
@@ -963,6 +975,7 @@ class GroupChatManager:
             name: Display name of the group
             agent_ids: List of agent IDs to include in the group
             owner_agent_id: ID of the owner/default responder agent
+            mode: free=自由讨论(LLM 选人) / supervisor=主管调度(owner 路由)
         """
         # Validate agent IDs
         valid_agents = [aid for aid in agent_ids if aid in self.agent_manager.agents]
@@ -976,12 +989,13 @@ class GroupChatManager:
             "name": name,
             "agents": valid_agents,
             "owner": owner_agent_id or valid_agents[0],
+            "mode": mode if mode in ("free", "supervisor") else "free",
             "created_at": datetime.now().isoformat(),
         }
         # Persist to database
         self._persist_room(room_id)
 
-        print(f"✅ Created group chat: {room_id} ('{name}') with agents: {valid_agents}")
+        print(f"✅ Created group chat: {room_id} ('{name}', mode={self.group_chats[room_id]['mode']}) with agents: {valid_agents}")
 
     async def add_member(self, room_id: str, agent_id: str):
         """Add an agent to an existing group chat."""
@@ -1029,6 +1043,7 @@ class GroupChatManager:
             "createdAt": 0,
             "ownerAgentId": info["owner"],
             "memberAgentIds": list(info["agents"]),
+            "mode": info.get("mode", "free"),
         }
 
     async def stream_send(
@@ -1050,9 +1065,13 @@ class GroupChatManager:
 
         from .group_engine import TeamEngineUnavailable, stream_team_response
 
-        members = list(self.group_chats[room_id]["agents"])
+        info = self.group_chats[room_id]
+        members = list(info["agents"])
         try:
-            async for item in stream_team_response(self.agent_manager, members, message, mentions=mentions, history=history):
+            async for item in stream_team_response(
+                self.agent_manager, members, message,
+                mentions=mentions, history=history, room_info=info,
+            ):
                 yield item
             return
         except TeamEngineUnavailable as e:

@@ -21,6 +21,7 @@ messages, and a speaker-selection mechanism decides who responds next.
 
 import asyncio
 import os
+import re
 import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -46,8 +47,58 @@ class TeamEngineUnavailable(Exception):
 
 # 无 @ 时允许的最大成员发言数（不含用户消息本身）
 DEFAULT_MAX_AUTO_SPEAKERS = 3
+# supervisor 模式的总消息上限（任务 + 主管分析 + 指派发言 + 主管汇总）
+SUPERVISOR_MAX_MESSAGES = int(os.getenv("GROUP_SUPERVISOR_MAX_MESSAGES", "8"))
 # 单次群聊运行的整体超时（秒），防止个别模型卡死拖垮 WS
 GROUP_RUN_TIMEOUT_S = float(os.getenv("GROUP_ENGINE_TIMEOUT", "240"))
+
+
+def _extract_mentioned_ids(text: str, valid_names: set) -> List[str]:
+    """Extract @<id> mentions from a message, in order, deduplicated."""
+    mentioned = []
+    for m in re.findall(r"@([\w-]+)", text or ""):
+        if m in valid_names and m not in mentioned:
+            mentioned.append(m)
+    return mentioned
+
+
+def _make_supervisor_selector(
+    owner_id: str,
+    participant_names: set,
+    state: Dict[str, Any],
+):
+    """Supervisor 模式的选人函数（L3 组织编排层 · Supervisor）.
+
+    状态机：
+    1. 首轮 → 强制 owner 先行（分析任务、@指派成员）；
+    2. 后续轮 → 解析 owner 最新一条消息中的 @<id>，按序强制被指派者发言；
+    3. 被指派者全部发言完毕后 → owner 收尾汇总一次；
+    4. 之后返回 None 交给 LLM 选人（通常自然收敛，且有 MaxMessageTermination 兜底）。
+    """
+    def selector_func(messages) -> Optional[str]:
+        owner_msgs = [m for m in messages if getattr(m, "source", None) == owner_id]
+        if not owner_msgs:
+            return owner_id  # 首轮：主管先行
+        last_content = getattr(owner_msgs[-1], "content", "") or ""
+        # 只解析 owner 最近一次"指派消息"之后的待处理名单
+        pending: List[str] = state.setdefault("pending", [])
+        if state.get("parsed_for") != id(owner_msgs[-1]):
+            state["parsed_for"] = id(owner_msgs[-1])
+            fresh = _extract_mentioned_ids(last_content, participant_names)
+            already = set(state.get("called", []))
+            state["pending"] = [m for m in fresh if m not in already]
+            pending = state["pending"]
+        if pending:
+            nxt = pending.pop(0)
+            state.setdefault("called", []).append(nxt)
+            state["assignees_spoke"] = True
+            return nxt
+        # 指派者都已发言 → owner 做一次收尾汇总
+        if state.get("assignees_spoke") and not state.get("summarized"):
+            state["summarized"] = True
+            return owner_id
+        return None
+    return selector_func
 
 
 def _resolve_selector_client(agent_manager: AgentManager, members: List[str]) -> Optional[Any]:
@@ -141,6 +192,7 @@ async def stream_team_response(
     message: str,
     mentions: Optional[List[str]] = None,
     history: Optional[List[Dict]] = None,
+    room_info: Optional[Dict[str, Any]] = None,
 ) -> AsyncGenerator[tuple, None]:
     """Run one framework-native group conversation turn.
 
@@ -174,8 +226,15 @@ async def stream_team_response(
     if selector_client is None and not valid_mentions:
         raise TeamEngineUnavailable("no selector model client available")
 
-    max_auto = int(os.getenv("GROUP_MAX_AUTO_SPEAKERS", str(DEFAULT_MAX_AUTO_SPEAKERS)))
-    if valid_mentions:
+    mode = (room_info or {}).get("mode", "free")
+    owner_id = (room_info or {}).get("owner")
+    supervisor_state: Dict[str, Any] = {}
+
+    if mode == "supervisor" and owner_id in participant_names:
+        # L3 Supervisor：owner 路由（先行分析 → @指派 → 收尾汇总）
+        selector_func = _make_supervisor_selector(owner_id, participant_names, supervisor_state)
+        max_messages = SUPERVISOR_MAX_MESSAGES
+    elif valid_mentions:
         # @路由：被 @ 成员按顺序强制先发言；max = 任务1条 + 每位被@者1条，
         # 全部响应后精确终止（不产生多余选人调用）。
         max_messages = len(valid_mentions) + 1
@@ -185,6 +244,7 @@ async def stream_team_response(
             return forced_queue.pop(0) if forced_queue else None
     else:
         # 自动调度：LLM 依据角色描述选人，最多 max_auto 个成员回合。
+        max_auto = int(os.getenv("GROUP_MAX_AUTO_SPEAKERS", str(DEFAULT_MAX_AUTO_SPEAKERS)))
         max_messages = max_auto + 1
         selector_func = None
 

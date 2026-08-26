@@ -35,7 +35,7 @@ interface UseChatSocketReturn {
   memories: Record<string, Record<string, { id: string; content: string; memory_type: string }[]>>;
   sendMessage: (roomId: string, content: string, mentions?: string[]) => void;
   createRoom: (name: string, agentId: string) => void;
-  createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string) => void;
+  createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string, mode?: 'free' | 'supervisor') => void;
   addGroupMember: (roomId: string, agentId: string) => void;
   loadHistory: (roomId: string) => void;
   refreshRooms: () => void;
@@ -127,6 +127,18 @@ export function useChatSocket(): UseChatSocketReturn {
           const idx = roomMsgs.findIndex((m) => m.id === msg.messageId);
           if (idx >= 0) {
             roomMsgs[idx] = { ...roomMsgs[idx], content: msg.fullContent, agentId: msg.agentId, streaming: false };
+          } else if (msg.fullContent) {
+            // Fallback: no prior chat.chunk (e.g. all content was reasoning-stripped)
+            // Create the assistant message directly from chat.done.
+            roomMsgs.push({
+              id: msg.messageId,
+              roomId: msg.roomId,
+              role: 'assistant',
+              content: msg.fullContent,
+              agentId: msg.agentId,
+              timestamp: Date.now(),
+              streaming: false,
+            });
           }
           next.set(msg.roomId, [...roomMsgs]);
           return next;
@@ -263,13 +275,14 @@ export function useChatSocket(): UseChatSocketReturn {
     }
   }, []);
 
-  const createGroup = useCallback((name: string, memberAgentIds: string[], ownerAgentId?: string) => {
+  const createGroup = useCallback((name: string, memberAgentIds: string[], ownerAgentId?: string, mode?: 'free' | 'supervisor') => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'group.create',
         name,
         memberAgentIds,
         ownerAgentId,
+        mode,
       } satisfies ClientMessage));
     }
   }, []);

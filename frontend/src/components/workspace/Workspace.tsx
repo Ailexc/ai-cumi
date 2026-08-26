@@ -23,6 +23,8 @@ import { WorkflowPanel } from './WorkflowPanel';
 import { DistributedPanel } from './DistributedPanel';
 import { CloudSpacePage } from './cloud-space/CloudSpacePage';
 import { RAGLabPage } from './rag-lab/RAGLabPage';
+import { DocsCenterPage } from './docs/DocsCenterPage';
+import { DocDetailPage } from './docs/DocDetailPage';
 import { getAgentMeta, formatTime, truncate } from './agentMeta';
 import type { Conv } from './Sidebar';
 
@@ -35,6 +37,7 @@ export function Workspace() {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [docView, setDocView] = useState<string | null>(null); // 文档详情视图(当前 docId)
 
   // 轻提示（扩展位点击用），3 秒后消失
   const showToast = (text: string) => {
@@ -153,7 +156,10 @@ export function Workspace() {
       <AppRail
         active={activeNav}
         onSelect={(id) => {
-          if (['chat','members','cloud-space','knowledge','channels','models','tools','approval','tracing','workflows','distributed'].includes(id)) setActiveNav(id);
+          if (['chat','members','cloud-space','knowledge','docs','channels','models','tools','approval','tracing','workflows','distributed'].includes(id)) {
+            setActiveNav(id);
+            setDocView(null); // 切换板块时退出文档详情
+          }
           setRosterOpen(false);
         }}
         onPlanned={(label) => showToast(`${label} · 规划中，敬请期待`)}
@@ -165,6 +171,13 @@ export function Workspace() {
       ) : activeNav === 'knowledge' ? (
         /* ===== RAG 实验室视图 ===== */
         <RAGLabPage />
+      ) : activeNav === 'docs' ? (
+        /* ===== 文档中心视图(中心列表 / 详情页) ===== */
+        docView ? (
+          <DocDetailPage docId={docView} onBack={() => setDocView(null)} />
+        ) : (
+          <DocsCenterPage onOpen={(id) => setDocView(id)} />
+        )
       ) : activeNav === 'members' ? (
         /* ===== 成员管理视图 ===== */
         <MemberManagement
@@ -261,8 +274,8 @@ export function Workspace() {
         <CreateGroupModal
           agents={agents}
           agentName={agentName}
-          onConfirm={(name, memberIds) => {
-            createGroup(name, memberIds);
+          onConfirm={(name, memberIds, mode) => {
+            createGroup(name, memberIds, undefined, mode);
             setShowCreateGroup(false);
           }}
           onCancel={() => setShowCreateGroup(false)}
@@ -281,11 +294,12 @@ function CreateGroupModal({
 }: {
   agents: { id: string; name: string }[];
   agentName: Map<string, string>;
-  onConfirm: (name: string, memberIds: string[]) => void;
+  onConfirm: (name: string, memberIds: string[], mode: 'free' | 'supervisor') => void;
   onCancel: () => void;
 }) {
   const [groupName, setGroupName] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<'free' | 'supervisor'>('free');
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -298,7 +312,7 @@ function CreateGroupModal({
 
   const handleConfirm = () => {
     if (!groupName.trim() || selected.size === 0) return;
-    onConfirm(groupName.trim(), Array.from(selected));
+    onConfirm(groupName.trim(), Array.from(selected), mode);
   };
 
   return (
@@ -319,6 +333,31 @@ function CreateGroupModal({
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
           />
         </label>
+
+        {/* 协作模式（L3 组织编排） */}
+        <div className="mb-4">
+          <span className="mb-1.5 block text-xs text-muted-foreground">协作模式</span>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setMode('free')}
+              className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                mode === 'free' ? 'border-primary bg-primary-50' : 'border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`block text-sm font-medium ${mode === 'free' ? 'text-primary' : 'text-foreground'}`}>自由讨论</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">按角色智能调度发言</span>
+            </button>
+            <button
+              onClick={() => setMode('supervisor')}
+              className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                mode === 'supervisor' ? 'border-primary bg-primary-50' : 'border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`block text-sm font-medium ${mode === 'supervisor' ? 'text-primary' : 'text-foreground'}`}>主管调度</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">房主拆解任务并指派汇总</span>
+            </button>
+          </div>
+        </div>
 
         {/* 选择成员 */}
         <div className="mb-4">

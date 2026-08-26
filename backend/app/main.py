@@ -638,6 +638,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         name=msg.get("name", "新群聊"),
                         agent_ids=msg.get("memberAgentIds", []),
                         owner_agent_id=msg.get("ownerAgentId"),
+                        mode=msg.get("mode", "free"),
                     )
                     await ws_manager.send_json(websocket, {
                         "type": "room.created",
