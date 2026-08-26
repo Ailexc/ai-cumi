@@ -40,6 +40,9 @@ except ImportError:
 from ..tools.registry import tool_registry
 from ..tools.builtin import register_builtin_tools
 
+# L1 团队认知层：花名册构建（纯函数，传 agents dict 避免循环导入）
+from .team_context import build_team_roster
+
 
 # ---------------------------------------------------------------------------
 # Tool-use policy: injected into every real agent's system message as a guard
@@ -224,6 +227,11 @@ class AgentManager:
             agent_tools = tool_registry.get_ag2_tools(tool_names)
         
         system_message = (info.get("persona") or "").strip()
+        # L1 团队认知：注入实时团队花名册（同事是谁、各自职责与专长工具）。
+        # 实例仅在成员/元数据变更时重建，因此构建时生成即最新。
+        roster = build_team_roster(self.agents, exclude_agent_id=agent_id)
+        if roster:
+            system_message = f"{system_message}\n\n{roster}" if system_message else roster
         system_message = f"{system_message}\n\n{TOOL_USE_POLICY}" if system_message else TOOL_USE_POLICY
 
         return AssistantAgent(
@@ -258,6 +266,18 @@ class AgentManager:
             info["mode"] = "mock"
             return None
 
+    async def rebuild_all_agents(self, exclude: Optional[str] = None):
+        """Rebuild every real agent instance so injected team context stays fresh.
+
+        Called after membership/metadata changes (create/delete/update/tools) —
+        each agent's system prompt embeds a roster snapshot of the *other*
+        members, so any change to name/role/tools/membership must propagate.
+        """
+        for agent_id in list(self.agents.keys()):
+            if agent_id == exclude:
+                continue
+            await self.rebuild_agent(agent_id)
+
     async def update_agent(
         self,
         agent_id: str,
@@ -279,6 +299,8 @@ class AgentManager:
         info["updated_at"] = datetime.now().isoformat()
         if rebuild:
             await self.rebuild_agent(agent_id)
+            # 名字/角色变化会影响其他成员花名册中的条目，一并重建
+            await self.rebuild_all_agents(exclude=agent_id)
         return dict(info)
 
     async def initialize_default_agents(self):
@@ -290,7 +312,10 @@ class AgentManager:
                 persona=agent_config["persona"],
                 role=agent_config["role"],
                 tools=agent_config.get("tools", []),
+                broadcast=False,
             )
+        # 逐个创建时先建者看不到后建者，最后统一重建一次保证花名册完整
+        await self.rebuild_all_agents()
 
     async def create_agent(
         self,
@@ -301,8 +326,13 @@ class AgentManager:
         tools: Optional[List[str]] = None,
         model_key: Optional[str] = None,
         force_real: bool = False,
+        broadcast: bool = True,
     ) -> Optional[Any]:
-        """Create a new AG2 agent (real if model client available, else mock)."""
+        """Create a new AG2 agent (real if model client available, else mock).
+
+        ``broadcast=False`` 供批量初始化使用（避免 O(n²) 重建），
+        调用方随后应显式调用 rebuild_all_agents()。
+        """
         if agent_id in self.agents:
             raise ValueError(f"Agent {agent_id} already exists")
 
@@ -326,6 +356,9 @@ class AgentManager:
         mode = "real" if agent_instance is not None else "mock"
         self.agents[agent_id]["mode"] = mode
         print(f"{'✅ Created REAL AG2 agent' if mode == 'real' else '🤖 Creating MOCK agent'}: {name} ({agent_id})")
+        if broadcast:
+            # 新成员入职：让其他成员的花名册立刻包含 TA
+            asyncio.create_task(self.rebuild_all_agents(exclude=agent_id))
         return agent_instance
 
     async def delete_agent(self, agent_id: str):
@@ -336,6 +369,11 @@ class AgentManager:
             del self.agent_instances[agent_id]
         del self.agents[agent_id]
         print(f"🗑️ Deleted agent: {agent_id}")
+        # 离职广播：从其余成员的花名册中移除该成员
+        try:
+            asyncio.create_task(self.rebuild_all_agents())
+        except RuntimeError:
+            pass  # 无事件循环（如单测环境）时跳过，下次重建自然生效
 
     def get_agent_info(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Get agent information."""
@@ -794,8 +832,8 @@ class AgentManager:
                 valid_tools.append(name)
         
         self.agents[agent_id]["tools"] = valid_tools
-        # Rebuild agent with new tools
-        asyncio.create_task(self.rebuild_agent(agent_id))
+        # Rebuild agent with new tools；工具变化也会体现在他人花名册中，全员重建
+        asyncio.create_task(self.rebuild_all_agents())
         return True
 
     def unbind_tools(self, agent_id: str) -> bool:
@@ -804,7 +842,7 @@ class AgentManager:
             return False
         
         self.agents[agent_id]["tools"] = []
-        asyncio.create_task(self.rebuild_agent(agent_id))
+        asyncio.create_task(self.rebuild_all_agents())
         return True
 
     def get_agent_tools(self, agent_id: str) -> List[str]:
