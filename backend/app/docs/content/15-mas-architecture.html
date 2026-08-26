@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="doc:title" content="五层 MAS 架构改造">
+<meta name="doc:category" content="架构">
+<meta name="doc:order" content="15">
+<meta name="doc:description" content="从「多个单 Agent 并排」到「五层多智能体体系」：团队认知、群聊协调、组织编排、共享记忆、A2A 互操作。改造前后对照、每层实现要点、真实模型端到端验收证据与面试叙事">
+<meta name="doc:icon" content="git-branch">
+<title>15 · 五层 MAS 架构改造</title>
+<style>
+:root{
+  --bg:#fafafb; --surface:#ffffff; --ink:#1a1b1e; --ink-2:#55585f; --ink-3:#8b8e96;
+  --primary:#5e6ad2; --primary-soft:#eef0fb; --border:#e8e8ec;
+  --green:#16a34a; --green-soft:#e9f9ef; --amber:#b45309; --amber-soft:#fdf3e3;
+  --rose:#e11d48; --rose-soft:#fdeef2; --sky:#0369a1; --sky-soft:#e8f3fa;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px}
+.doc-body{max-width:920px;margin:0 auto;padding:40px 48px 96px}
+@media(max-width:720px){.doc-body{padding:24px 20px 64px}}
+h1{font-size:30px;line-height:1.3;letter-spacing:-.01em;margin-bottom:8px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--primary),#8b93e8);flex:none}
+h3{font-size:16px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;margin:18px 0 8px;color:var(--ink-2)}
+section[id]{scroll-margin-top:24px}
+p{margin:10px 0}
+ul,ol{margin:10px 0 10px 2px;padding-left:22px}
+li{margin:5px 0}
+strong{color:var(--ink)}
+code{font-family:var(--mono);font-size:.88em;background:#f1f1f4;border:1px solid #e6e6ea;border-radius:5px;padding:1px 6px;color:#4338ca}
+pre{background:#17181d;color:#e8e8ef;border-radius:12px;padding:18px 20px;overflow-x:auto;margin:14px 0;font-size:13px;line-height:1.65}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:13px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.tip,.warn,.note,.key{display:flex;gap:10px;border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14px;line-height:1.7;border:1px solid}
+.tip{background:var(--sky-soft);border-color:#cfe6f5;color:#0c4a6e}
+.warn{background:var(--amber-soft);border-color:#f4e0bd;color:#7c4a03}
+.note{background:var(--green-soft);border-color:#c8ecd6;color:#14532d}
+.key{background:var(--primary-soft);border-color:#d9def7;color:#3730a3}
+.tip::before{content:"💡";flex:none}
+.warn::before{content:"⚠️";flex:none}
+.note::before{content:"✅";flex:none}
+.key::before{content:"🎯";flex:none}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+th{background:#f4f4f7;color:var(--ink-2);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td code{white-space:nowrap}
+.rating{display:inline-flex;align-items:center;gap:5px;font-weight:600;padding:2px 9px;border-radius:999px;font-size:12px}
+.r-5{background:var(--green-soft);color:var(--green)} .r-4{background:#eefbe8;color:#3f8c24}
+.r-3{background:var(--amber-soft);color:var(--amber)} .r-2{background:var(--rose-soft);color:var(--rose)}
+.r-1{background:#f5f5f6;color:var(--ink-3)}
+.doc-toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin:20px 0 28px;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.doc-toc-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase;margin-bottom:10px}
+.doc-toc{display:flex;flex-direction:column;gap:2px}
+.doc-toc a{color:var(--ink-2);font-size:13.5px;padding:3px 8px;border-radius:6px;transition:background .15s}
+.doc-toc a:hover{background:var(--primary-soft);color:var(--primary);text-decoration:none}
+.doc-toc a.doc-toc-h3{padding-left:24px;font-size:13px;color:var(--ink-3)}
+.fig{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;margin:18px 0;box-shadow:0 1px 2px rgba(20,20,30,.03)}
+.fig svg{width:100%;height:auto;display:block}
+.fig-cap{font-size:12.5px;color:var(--ink-3);text-align:center;margin-top:12px;line-height:1.6}
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.hero-icon{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#7c3aed,#a78bfa);display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;box-shadow:0 6px 18px rgba(124,58,237,.28);flex:none}
+.hero-meta{font-size:13px;color:var(--ink-3);margin-top:4px}
+.badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11.5px;font-weight:600;margin-right:6px}
+.b-core{background:var(--primary-soft);color:var(--primary)}
+.b-cap{background:var(--sky-soft);color:var(--sky)}
+.b-adv{background:var(--green-soft);color:var(--green)}
+.b-infra{background:#f4f4f7;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<nav class="doc-toc">
+  <div class="doc-toc-title">本文目录</div>
+  <a href="#why" class="doc-toc-h2">为什么做：从「孤立」到「体系」</a>
+  <a href="#five-layers" class="doc-toc-h2">五层体系总览</a>
+  <a href="#phase1" class="doc-toc-h2">Phase 1 · 团队认知（花名册注入）</a>
+  <a href="#phase2" class="doc-toc-h2">Phase 2 · 群聊协调（SelectorGroupChat）</a>
+  <a href="#phase3" class="doc-toc-h2">Phase 3 · 组织编排（委派 + 主管）</a>
+  <a href="#phase4" class="doc-toc-h2">Phase 4 · 共享记忆（私有/团队）</a>
+  <a href="#phase5" class="doc-toc-h2">Phase 5 · A2A 互操作协议</a>
+  <a href="#before-after" class="doc-toc-h2">改造前后对照</a>
+  <a href="#bonus" class="doc-toc-h2">额外收获：存量 Bug 修复</a>
+  <a href="#scorecard" class="doc-toc-h2">能力评分卡：与业内对比</a>
+  <a href="#interview" class="doc-toc-h2">面试叙事</a>
+  <a href="#refs" class="doc-toc-h2">关联材料</a>
+</nav>
+<main class="doc-body">
+
+<div class="hero">
+  <div class="hero-icon">🧩</div>
+  <div>
+    <h1>五层 MAS 架构改造</h1>
+    <div class="hero-meta">多智能体协作体系 · 2026-08-26 当日完成 · 6 个提交全通过真实模型端到端验收 ｜ 建议先读 02 · 架构总览</div>
+  </div>
+</div>
+
+<div class="key"><strong>一句话总结</strong>：AiCumi 从「多个单 Agent 并排」（业界称 multi-washing）升级为<strong>按业界五层标准体系实现的完整多智能体系统（MAS）</strong>——团队认知、群聊协调、组织编排、共享记忆、A2A 互操作。这不是补丁式修复，而是当初选型 AG2 时最想要的 GroupChat 编排能力真正落地。</div>
+
+<section id="why">
+<h2>为什么做：从「孤立」到「体系」</h2>
+<p><strong>触发点</strong>：使用中发现「员工彼此不知道对方」——问可灵「小研在做什么？」，可灵回答「没有找到相关信息」。</p>
+<p><strong>定性</strong>：经业界调研确认，这不是单点 Bug，而是多智能体系统<strong>五层标准架构的系统性缺失</strong>。根因是三层隔离：</p>
+<table>
+<tr><th>层面</th><th>代码位置</th><th>问题</th></tr>
+<tr><td>人设层</td><td><code>agent_manager.py</code> <code>_build_agent_instance()</code></td><td>system_message 只含自己的人设，无团队信息</td></tr>
+<tr><td>记忆层</td><td><code>vector_memory.py</code> <code>search()</code></td><td>按 agent_id 硬过滤，记忆完全私有</td></tr>
+<tr><td>群聊层</td><td><code>GroupChatManager.stream_send()</code></td><td>被 @ 的成员各自独立回复同一条消息，彼此看不到对方输出</td></tr>
+</table>
+<div class="warn">项目当初选 AG2 的核心理由——GroupChat 编排能力——此前从未真正使用，只是把多个 <code>AssistantAgent</code> 并排放着。这正是「选对了框架、没用上框架」的典型。</div>
+</section>
+
+<section id="five-layers">
+<h2>五层体系总览</h2>
+<p>业界把多智能体「相互认知与协作」拆解为五个子问题，每层有标准方案与代表框架。AiCumi 按此体系完整落地：</p>
+<div class="fig">
+<svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="五层 MAS 架构图">
+  <defs>
+    <linearGradient id="m1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+    <linearGradient id="m2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="m3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    <linearGradient id="m4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <linearGradient id="m5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748b"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
+    <filter id="mshadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1e1b4b" flood-opacity=".12"/></filter>
+  </defs>
+  <g font-family="PingFang SC, sans-serif">
+    <rect x="20" y="16" width="820" height="52" rx="14" fill="url(#m1)" filter="url(#mshadow)"/>
+    <text x="430" y="38" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">L4 互操作协议层 · A2A Agent Card + 任务接口（Phase 5）</text>
+    <text x="430" y="58" text-anchor="middle" fill="#ede9fe" font-size="11.5">外部系统可发现并委托本平台员工</text>
+
+    <rect x="20" y="80" width="820" height="52" rx="14" fill="url(#m2)" filter="url(#mshadow)"/>
+    <text x="430" y="102" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">L3 组织编排层 · Supervisor 主管 + Handoff 委派（Phase 3）</text>
+    <text x="430" y="122" text-anchor="middle" fill="#e0f2fe" font-size="11.5">中心化路由 vs 去中心化移交，两种主流编排模式</text>
+
+    <rect x="20" y="144" width="820" height="52" rx="14" fill="url(#m3)" filter="url(#mshadow)"/>
+    <text x="430" y="166" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">L2 会话协调层 · SelectorGroupChat 自动选人（Phase 2）</text>
+    <text x="430" y="186" text-anchor="middle" fill="#d1fae5" font-size="11.5">LLM 按角色描述调度发言人与轮次，@路由走 selector_func</text>
+
+    <rect x="20" y="208" width="820" height="52" rx="14" fill="url(#m4)" filter="url(#mshadow)"/>
+    <text x="430" y="230" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">L1 静态认知层 · 团队花名册注入（Phase 1）</text>
+    <text x="430" y="250" text-anchor="middle" fill="#fef3c7" font-size="11.5">Agent 的「同事认知」是显式注入的结构化上下文，不是模型涌现</text>
+
+    <rect x="20" y="272" width="820" height="52" rx="14" fill="url(#m5)" filter="url(#mshadow)"/>
+    <text x="430" y="294" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">L5 共享状态层 · 私有/团队两级记忆（Phase 4）</text>
+    <text x="430" y="314" text-anchor="middle" fill="#e2e8f0" font-size="11.5">跨成员检索 + 来源溯源标注</text>
+  </g>
+</svg>
+<div class="fig-cap">五层体系：L1 是地基 → L2 依赖 L1（选人靠角色描述）→ L3 依赖 L2 → L4/L5 相对独立。</div>
+</div>
+</section>
+
+<section id="phase1">
+<h2>Phase 1 · 团队认知（花名册注入）</h2>
+<p><strong>业界做法</strong>：所有框架标配。Agent 的「同事认知」是显式注入的结构化上下文，不是模型涌现。</p>
+<p><strong>改造前</strong>：每个 Agent 的 system_message = 自己的人设 + 工具准则，可灵不知道小研/小码的存在。</p>
+<p><strong>改造后</strong>：每个 Agent 的 system_message 自动附加「团队通讯录」章节——全部在职成员的名字、角色、职责一句话、专长工具；排除自己；成员入职/离职/改名/改角色时全员实例自动重建。</p>
+<table>
+<tr><th>文件</th><th>改动</th></tr>
+<tr><td><code>backend/app/agents/team_context.py</code>（新建）</td><td><code>build_roster(exclude_agent_id)</code> 从 AgentManager 元数据生成花名册文本；缓存 + 失效机制</td></tr>
+<tr><td><code>backend/app/agents/agent_manager.py</code></td><td><code>_build_agent_instance()</code> 注入花名册；成员变更后触发全员重建</td></tr>
+</table>
+<div class="note"><strong>验收通过</strong>：问可灵「小研是做什么的？」→ 准确回答「小研是调研专员，擅长 web_search…」（此前：没有找到相关信息），并主动提出可协调任务给同事。</div>
+<p><strong>面试叙事</strong>：「Agent 的相互认知不是涌现的，是我工程化构造的上下文，并且维护了失效一致性。」</p>
+</section>
+
+<section id="phase2">
+<h2>Phase 2 · 群聊协调（SelectorGroupChat）</h2>
+<p><strong>业界做法</strong>：AG2/AutoGen 的招牌能力 GroupChat + Speaker Selection。</p>
+<p><strong>改造前</strong>：被 @ 的成员<strong>并行独立</strong>回复同一条消息，彼此看不到对方输出，无发言顺序、无讨论轮次。</p>
+<p><strong>改造后</strong>：群聊房间按需构建 <code>SelectorGroupChat</code> 实例（participants = 房间成员，各带自己的 model client）。</p>
+<ul>
+<li><strong>无 @</strong>：LLM 选人机制根据成员角色描述决定谁先回应、是否需要第二人补充；</li>
+<li><strong>有 @</strong>：通过 <code>selector_func</code> 强制被 @ 成员先发言，后续轮次交给 LLM 选人；</li>
+<li><strong>终止条件</strong>：<code>MaxMessageTermination</code>（轮次上限）+ 所有被 @ 成员已响应即收敛；</li>
+<li><strong>流式兼容</strong>：每个成员发言仍是独立 message bubble、token 级流式（chunk 事件穿透 <code>run_stream()</code>）——<strong>前端协议不变</strong>。</li>
+</ul>
+<table>
+<tr><th>文件</th><th>改动</th></tr>
+<tr><td><code>backend/app/agents/group_engine.py</code>（新建）</td><td>封装 SelectorGroupChat 构建/复用、selector_func(@路由)、终止条件、事件流 → (agent_id, chunk, message_id) 适配器</td></tr>
+<tr><td><code>backend/app/agents/agent_manager.py</code></td><td><code>GroupChatManager.stream_send/send_message</code> 内部改为调用 group_engine</td></tr>
+</table>
+<div class="note"><strong>验收通过</strong>：无 @ 发「产品复盘怎么分工」→ 可灵列表格 → 小研认领并引用分工表 → 可灵收尾，<strong>三轮自动调度</strong>。</div>
+<p><strong>面试叙事</strong>：「我用 SelectorGroupChat 实现了基于角色描述的自动发言调度，并用 selector_func 扩展点实现了产品级 @路由。」</p>
+</section>
+
+<section id="phase3">
+<h2>Phase 3 · 组织编排（委派 + 主管）</h2>
+<p><strong>业界做法</strong>：Supervisor（主管路由）与 Handoff（平级移交）是 2025 年生产环境两大主流编排模式。</p>
+<h3>3a · Handoff 委派工具</h3>
+<p>每个 Agent 注册 <code>delegate_to_colleague(target, question)</code> 工具（走 tool_registry），运行时可向指定同事发起子对话并取回结果，以自己的口吻转述给用户。委派动作写入 tracing（delegate 事件类型），可在追踪页观察调用链。用 <code>ContextVar</code> 做递归深度上限（2 层）防死循环。</p>
+<div class="note"><strong>验收通过</strong>：「帮我问问小码 GIL」→ 可灵委派 → 转述原话，tracing 可见完整调用链。</div>
+<h3>3b · Supervisor 主管模式</h3>
+<p>群房间支持 <code>mode: "supervisor"</code>——由 owner（如可灵）接收消息、分析任务、@指派合适成员、汇总结论。与自由讨论模式并存，建群时可选。supervisor 的 selector_func：owner 总是先发言，owner 通过 <code>@id:</code> 标记指定下一位发言者。</p>
+<div class="note"><strong>验收通过</strong>：「做竞品分析」→ 可灵拆解指派 → 小研调研 → 小码技术补充 → 汇总报告，完整闭环。</div>
+<p><strong>面试叙事</strong>：「我实现了两种主流编排模式的对比：中心化 Supervisor 路由 vs 去中心化 Handoff 委派，并能讲清各自的成本与失控风险。」</p>
+</section>
+
+<section id="phase4">
+<h2>Phase 4 · 共享记忆（私有/团队）</h2>
+<p><strong>业界做法</strong>：MetaGPT 消息池 / LangGraph 共享 State / CrewAI crew 级 Knowledge。私有+共享分层是标准形态。</p>
+<p><strong>改造前</strong>：记忆检索 where 条件硬编码 <code>agent_id = 当前成员</code>，小研调研过的东西可灵完全不知道。</p>
+<p><strong>改造后</strong>：记忆元数据增加 <code>scope</code> 字段（<code>private</code> 默认 / <code>team</code>）；检索先查私有记忆，不足时补充团队共享记忆并<strong>标注来源成员</strong>（如「来自小研的记忆」）；设置页提供开关。</p>
+<table>
+<tr><th>文件</th><th>改动</th></tr>
+<tr><td><code>backend/app/memory/vector_memory.py</code></td><td><code>add()</code> 支持 scope 入库 metadata；<code>search()</code> 支持 <code>include_team</code> 合并查询（ChromaDB where <code>$or</code>）</td></tr>
+<tr><td><code>backend/app/agents/agent_manager.py</code></td><td><code>retrieve_memories/build_memory_context</code> 传 include_team 开关；enriched context 标注来源成员</td></tr>
+<tr><td><code>backend/app/settings/router.py</code></td><td>全局配置项 team_memory_enabled</td></tr>
+</table>
+<div class="note"><strong>验收通过</strong>：小研的 team 记忆被可灵跨成员检索命中，标注 <code>source=小研</code>。</div>
+<p><strong>面试叙事</strong>：「我设计了私有/团队两级记忆作用域，检索时合并并溯源标注。」</p>
+</section>
+
+<section id="phase5">
+<h2>Phase 5 · A2A 互操作协议</h2>
+<p><strong>业界做法</strong>：A2A（Google 发起，2025-06 捐赠 Linux Foundation，50+ 企业共建）是智能体互操作的事实标准。Agent Card 即「相互认知」的协议化表达。</p>
+<p><strong>改造前</strong>：AiCumi 的员工只能在本平台内被访问，外部世界不可见。</p>
+<p><strong>改造后</strong>：实现 A2A 最小服务面（原生 FastAPI，不引重依赖）：</p>
+<ul>
+<li><code>GET /.well-known/agent-card.json</code>：全团队成员的能力名片（名字、角色、技能、工具列表）；</li>
+<li>单成员粒度 Agent Card：<code>/api/a2a/{agent_id}/.well-known/agent-card.json</code>；</li>
+<li><code>POST /api/a2a/{agent_id}/tasks/send</code>：符合 A2A Task 生命周期的最小任务接口（submitted → working → completed，返回 Message/Artifact 结构）；</li>
+<li>复用现有 <code>AgentManager.send_message</code> 作为执行后端。</li>
+</ul>
+<div class="note"><strong>验收通过</strong>：<code>curl /.well-known/agent-card.json</code> 即可发现团队；外部可向小研提交任务拿到 completed 状态 + Artifact。</div>
+<p><strong>面试叙事</strong>：「我的平台不仅内部多智能体协作，还实现了 A2A 协议对外暴露，支持跨系统智能体发现与委托。」</p>
+</section>
+
+<section id="before-after">
+<h2>改造前后对照</h2>
+<table>
+<tr><th>维度</th><th>改造前</th><th>改造后</th></tr>
+<tr><td>员工相互认知</td><td>❌ 完全孤立，互不知晓</td><td>✅ 全员持有实时团队通讯录</td></tr>
+<tr><td>「小研在做什么？」</td><td>❌ 「没有找到相关信息」</td><td>✅ 准确回答角色/状态/近期工作</td></tr>
+<tr><td>群聊 @多人</td><td>⚠️ 平行宇宙各自作答</td><td>✅ 有序发言、可见彼此观点、可接话补充</td></tr>
+<tr><td>群聊无 @</td><td>⚠️ 仅房主响应</td><td>✅ LLM 按角色描述智能调度发言人与轮次</td></tr>
+<tr><td>跨成员求助</td><td>❌ 不可能</td><td>✅ delegate 工具运行时委派 + 转述</td></tr>
+<tr><td>组织模式</td><td>Pipeline 一种（Workflow）</td><td>✅ Pipeline + Supervisor + Handoff 三种</td></tr>
+<tr><td>记忆模型</td><td>纯私有孤岛</td><td>✅ 私有 + 团队共享分层，来源可溯</td></tr>
+<tr><td>对外开放</td><td>❌ 封闭系统</td><td>✅ A2A Agent Card + 任务接口，可被发现和委托</td></tr>
+<tr><td>AG2 使用深度</td><td>仅 AssistantAgent 单体</td><td>✅ SelectorGroupChat/Swarm/termination 全家桶</td></tr>
+</table>
+</section>
+
+<section id="bonus">
+<h2>额外收获：存量 Bug 修复</h2>
+<div class="warn">改造过程中挖出并修复了一个<strong>存量 Bug</strong>：启动时默认模型误选了 embedding 配置（<code>qwen3.7-text-embedding</code>），意味着小研和小码此前一直在用 embedding 模型跑对话——只是被可灵的独立模型绑定掩盖了。这正是「端到端真实验收」的价值：不跑真实对话，永远发现不了这类「不报错但悄悄不生效」的问题。</div>
+</section>
+
+<section id="scorecard">
+<h2>能力评分卡：与业内对比</h2>
+<table>
+<tr><th>能力</th><th>评分</th><th>说明</th></tr>
+<tr><td>团队认知（L1）</td><td><span class="rating r-5">★★★★★</span></td><td>花名册注入 + 失效一致性，业界标配做法</td></tr>
+<tr><td>群聊协调（L2）</td><td><span class="rating r-5">★★★★★</span></td><td>SelectorGroupChat 自动选人 + @路由扩展点</td></tr>
+<tr><td>组织编排（L3）</td><td><span class="rating r-4">★★★★☆</span></td><td>Supervisor + Handoff 双模式；委派深度上限 2 层</td></tr>
+<tr><td>共享记忆（L5）</td><td><span class="rating r-4">★★★★☆</span></td><td>私有/团队两级 + 来源溯源；升格需显式</td></tr>
+<tr><td>A2A 互操作（L4）</td><td><span class="rating r-4">★★★★☆</span></td><td>Agent Card + 最小 Task 生命周期；未做完整 A2A 全协议</td></tr>
+</table>
+</section>
+
+<section id="interview">
+<h2>面试叙事</h2>
+<div class="card">
+<p><strong>一句话</strong>：「我按业界五层体系实现了完整的多智能体架构，每层都有真实模型端到端验收证据。」</p>
+<ul>
+<li><strong>为什么不是补丁</strong>：问题定性为五层标准架构的系统性缺失，而非单点 Bug；</li>
+<li><strong>框架选型落地</strong>：当初选 AG2 就是为了 GroupChat 编排，这次真正用上了 SelectorGroupChat/Swarm/termination 全家桶；</li>
+<li><strong>两种编排模式对比</strong>：中心化 Supervisor 路由 vs 去中心化 Handoff 委派，能讲清成本与失控风险；</li>
+<li><strong>协议化认知</strong>：A2A Agent Card 是「相互认知」的协议化表达，2025 年行业最大共识方向。</li>
+</ul>
+</div>
+</section>
+
+<section id="refs">
+<h2>关联材料</h2>
+<ul>
+<li>完整改造计划（含每期验收标准）：《plans/多智能体协作体系改造计划-2026-08-26.md》</li>
+<li>相关提交：<code>3375b96</code>（L1）、<code>40b2985</code>（L2）、<code>08b2bc2</code>（L3a）、<code>c005b7a</code>（L3b）、<code>3ecf2e7</code>（L5）、<code>a0e9609</code>（L4）</li>
+<li>相关文档：02 · 架构总览、03 · 对话与 Agent 编排、05 · 记忆系统</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
