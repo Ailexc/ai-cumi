@@ -25,16 +25,13 @@ import uuid
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 
-# ---- AG2 imports (with mock fallback) ----
-try:
-    from autogen_agentchat.agents import AssistantAgent
-    from autogen_agentchat.messages import TextMessage, ModelClientStreamingChunkEvent
-    from autogen_ext.models.openai import OpenAIChatCompletionClient
-    from autogen_core import CancellationToken
-    from autogen_core.models import ModelInfo, ModelFamily
-    HAS_REAL_AGENT = True
-except ImportError:
-    HAS_REAL_AGENT = False
+# ---- AG2 imports（核心依赖，缺失即环境错误，不降级不兜底）----
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.messages import TextMessage, ModelClientStreamingChunkEvent
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_core import CancellationToken
+from autogen_core.models import ModelInfo, ModelFamily
+HAS_REAL_AGENT = True
 
 # Import tool registry
 from ..tools.registry import tool_registry
@@ -1075,14 +1072,14 @@ class GroupChatManager:
         """
         Stream group chat responses. Yields (agent_id, chunk, message_id) tuples.
 
-        L2 会话协调层：优先走框架原生 SelectorGroupChat 引擎（成员共享对话流、
-        可见彼此发言、自动调度/@路由），不可用时回退旧的并行独立响应路径
-        （mock / 无模型开发环境）。``history`` 携带近期房间轮次供上下文衔接。
+        L2 会话协调层：框架原生引擎（SelectorGroupChat 讨论 / GraphFlow 并行），
+        按房间 mode 路由。框架引擎不可用时直接报错——学习项目不降级、不兜底。
+        ``history`` 携带近期房间轮次供上下文衔接。
         """
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
 
-        from .group_engine import TeamEngineUnavailable, stream_parallel_response, stream_team_response
+        from .group_engine import stream_parallel_response, stream_team_response
 
         info = self.group_chats[room_id]
         members = list(info["agents"])
@@ -1096,26 +1093,11 @@ class GroupChatManager:
                 yield item
             return
 
-        try:
-            async for item in stream_team_response(
-                self.agent_manager, members, message,
-                mentions=mentions, history=history, room_info=info,
-            ):
-                yield item
-            return
-        except TeamEngineUnavailable as e:
-            print(f"ℹ️ team engine unavailable ({e}) — legacy parallel fallback")
-
-        for agent_id in self._resolve_targets(room_id, mentions):
-            message_id = str(uuid.uuid4())
-            try:
-                # use_memory=False: group replies shouldn't embed the __MEMORY__
-                # sentinel (DM-only memory injection keeps the group protocol clean).
-                async for chunk in self.agent_manager.stream_message(agent_id, message, use_memory=False, history=history):
-                    yield (agent_id, chunk, message_id)
-            except Exception as e:
-                print(f"⚠️ group stream error for {agent_id}: {e}")
-                yield (agent_id, f"[Agent {agent_id} 出错: {e}]", message_id)
+        async for item in stream_team_response(
+            self.agent_manager, members, message,
+            mentions=mentions, history=history, room_info=info,
+        ):
+            yield item
 
     async def send_message(
         self,
@@ -1132,33 +1114,12 @@ class GroupChatManager:
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
 
-        # L2：优先框架原生引擎（与 stream_send 同一套行为）
-        from .group_engine import TeamEngineUnavailable, collect_team_response
+        # L2：框架原生引擎（与 stream_send 同一套行为），不降级不兜底
+        from .group_engine import collect_team_response
 
         members = list(self.group_chats[room_id]["agents"])
         mode = self.group_chats[room_id].get("mode", "free")
-        try:
-            return await collect_team_response(self.agent_manager, members, message, mentions=mentions, mode=mode)
-        except TeamEngineUnavailable as e:
-            print(f"ℹ️ team engine unavailable ({e}) — legacy parallel fallback")
-
-        target_agents = self._resolve_targets(room_id, mentions)
-
-        # Get responses from each agent concurrently (memory injection off for groups)
-        tasks = [
-            self.agent_manager.send_message(agent_id, message, use_memory=False)
-            for agent_id in target_agents
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        responses = {}
-        for agent_id, result in zip(target_agents, results):
-            if isinstance(result, Exception):
-                responses[agent_id] = f"错误: {str(result)}"
-            else:
-                responses[agent_id] = result
-
-        return responses
+        return await collect_team_response(self.agent_manager, members, message, mentions=mentions, mode=mode)
 
     async def delete_group_chat(self, room_id: str):
         """Delete a group chat."""

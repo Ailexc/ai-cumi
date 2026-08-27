@@ -83,51 +83,55 @@ async def lifespan(app: FastAPI):
     ws_manager = WebSocketManager()
 
     # Initialize agent manager:
-    #   - mock_mode=True  → force mock
-    #   - mock_mode=False/None → auto: real if a default model config exists
+    #   学习项目默认走真实模式；无可用模型时明确报错，不 mock 兜底。
     from .agents.agent_manager import build_model_client
     from .models import MemberProfile, ModelConfig
 
-    agent_manager = AgentManager(mock_mode=True)  # start in mock as safe default
+    agent_manager = AgentManager(mock_mode=False)
     db = next(get_db())
     try:
-        if settings.mock_mode is not True:
-            service = ModelManagementService(db, model_encryptor)
-            configs = service.get_all_configs()
-            # 默认对话模型：取 default_model 且非 embedding/搜索类的第一条；
-            # 兜底选第一条（历史行为）。embedding 模型不能当对话模型用
-            # （会报 400 input.contents），必须跳过。
-            _NON_CHAT_MARKERS = ("embedding", "tavily", "bocha", "web-search", "rerank")
-            default = next(
-                (
-                    c for c in configs
-                    if c.default_model and not any(m in (c.model_name or "").lower() for m in _NON_CHAT_MARKERS)
-                ),
-                None,
-            ) or next(
-                (c for c in configs if not any(m in (c.model_name or "").lower() for m in _NON_CHAT_MARKERS)),
-                None,
+        if settings.mock_mode is True:
+            raise RuntimeError(
+                "mock_mode=True 已禁用：学习项目不降级不兜底。请在「模型管理」配置真实模型后重启。"
             )
-            if default:
-                api_key = service.get_decrypted_key(default.id)
-                if api_key:
-                    client = build_model_client(
-                        provider=default.provider,
-                        model_name=default.model_name,
-                        api_key=api_key,
-                        base_url=default.base_url,
-                    )
-                    agent_manager = AgentManager(mock_mode=False)
-                    agent_manager.set_model_client(client, stream=True)
-                    print(
-                        f"✅ Real mode: default model "
-                        f"{default.provider}/{default.model_name} "
-                        f"({'base_url=' + default.base_url if default.base_url else 'official endpoint'})"
-                    )
-                else:
-                    print("⚠️ Default model found but key cannot be decrypted → mock mode")
-        else:
-            print("ℹ️ mock_mode=True → running in MOCK mode")
+        service = ModelManagementService(db, model_encryptor)
+        configs = service.get_all_configs()
+        # 默认对话模型：取 default_model 且非 embedding/搜索类的第一条。
+        # embedding 模型不能当对话模型用（会报 400 input.contents），必须跳过。
+        _NON_CHAT_MARKERS = ("embedding", "tavily", "bocha", "web-search", "rerank")
+        default = next(
+            (
+                c for c in configs
+                if c.default_model and not any(m in (c.model_name or "").lower() for m in _NON_CHAT_MARKERS)
+            ),
+            None,
+        ) or next(
+            (c for c in configs if not any(m in (c.model_name or "").lower() for m in _NON_CHAT_MARKERS)),
+            None,
+        )
+        if not default:
+            raise RuntimeError(
+                "未配置对话模型：请在「模型管理」添加 LLM 模型并设为默认后重启。"
+                "学习项目不 mock 兜底。"
+            )
+        api_key = service.get_decrypted_key(default.id)
+        if not api_key:
+            raise RuntimeError(
+                f"默认模型 {default.model_name} 的 API Key 无法解密：请重新保存该配置。"
+            )
+        client = build_model_client(
+            provider=default.provider,
+            model_name=default.model_name,
+            api_key=api_key,
+            base_url=default.base_url,
+        )
+        agent_manager = AgentManager(mock_mode=False)
+        agent_manager.set_model_client(client, stream=True)
+        print(
+            f"✅ Real mode: default model "
+            f"{default.provider}/{default.model_name} "
+            f"({'base_url=' + default.base_url if default.base_url else 'official endpoint'})"
+        )
     except Exception as e:
         import traceback
         traceback.print_exc()

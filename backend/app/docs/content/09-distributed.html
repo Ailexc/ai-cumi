@@ -327,7 +327,7 @@ def factory(route_type: str, worker_id: str):
     <text x="700" y="200" text-anchor="middle" fill="#b45309" font-size="11">executor(agent_id, message)</text>
     <rect x="530" y="240" width="310" height="66" rx="14" fill="url(#ds-x-am)"/>
     <text x="685" y="266" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">AgentManager.send_message（进程内）</text>
-    <text x="685" y="288" text-anchor="middle" fill="#d1fae5" font-size="11">真实 AG2 AssistantAgent 调用 · 无模型时 mock 兜底</text>
+    <text x="685" y="288" text-anchor="middle" fill="#d1fae5" font-size="11">真实 AG2 AssistantAgent 调用 · 未配置模型时后端明确报错</text>
     <rect x="20" y="240" width="470" height="66" rx="14" fill="#f4f4f7"/>
     <text x="255" y="266" text-anchor="middle" fill="#55585f" font-size="12">诚实取舍：拓扑 / 路由 / LB / 健康 / 故障转移 100% 真实 gRPC；</text>
     <text x="255" y="288" text-anchor="middle" fill="#8b8e96" font-size="11.5">但"执行"复用进程内 Agent 路径 —— 不是真正的跨机模型推理</text>

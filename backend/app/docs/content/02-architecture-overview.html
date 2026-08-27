@@ -295,7 +295,7 @@ td code{white-space:nowrap}
 <table>
   <thead><tr><th>AG2 能力</th><th>我们的用法</th><th>代码落点</th><th>改造/增强</th></tr></thead>
   <tbody>
-    <tr><td><code>AssistantAgent</code></td><td>每个员工 = 一个真实 AG2 Agent（persona 作为 system_message）</td><td><code>agent_manager._build_agent_instance()</code></td><td>mock 兜底：无模型时降级为模拟回复</td></tr>
+    <tr><td><code>AssistantAgent</code></td><td>每个员工 = 一个真实 AG2 Agent（persona 作为 system_message）</td><td><code>agent_manager._build_agent_instance()</code></td><td>真实模式：未配置模型时后端明确报错，不 mock 兜底</td></tr>
     <tr><td><code>model_client_stream</code></td><td>逐 token 流式输出</td><td><code>_real_stream()</code></td><td>思考剥离 + `chat.thinking` 事件</td></tr>
     <tr><td><code>FunctionTool</code></td><td>内置工具注册为 AG2 工具并绑定到 Agent</td><td><code>tools/registry.get_ag2_tools()</code></td><td>ToolRegistry 统一管理 + 前端绑定 UI</td></tr>
     <tr><td><code>OpenAIChatCompletionClient</code></td><td>统一接入任意 OpenAI 兼容端点（MiMo/DeepSeek/自建）</td><td><code>build_model_client()</code></td><td>Anthropic 原生客户端 + model_info 兜底</td></tr>

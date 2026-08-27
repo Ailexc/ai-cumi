@@ -405,15 +405,16 @@ return {"status": "ok", "reply": reply, "latency_ms": latency}</code></pre>
 <p>配置中心最终要回答一个产品问题：<strong>每个员工（Agent）用哪个模型？</strong>答案是三层：系统默认 → 全局默认模型 → per-agent 覆盖。</p>
 
 <h3>启动时自动检测默认模型（main.py lifespan）</h3>
-<pre><code># mock 自动检测：存在默认模型配置 → 真实模式，否则 mock 兜底
+<pre><code># 真实模式：存在默认模型配置 → 构建 AG2 客户端；否则明确报错，不 mock 兜底
 configs = service.get_all_configs()
 default = next((c for c in configs if c.default_model), None) or (configs[0] if configs else None)
-if default:
-    client = build_model_client(provider=default.provider, model_name=default.model_name,
-                                api_key=api_key, base_url=default.base_url)
-    agent_manager = AgentManager(mock_mode=False)
-    agent_manager.set_model_client(client, stream=True)   # ✅ 真实模式</code></pre>
-<p>这就是"重启后端即进入真实对话"的实现：<code>settings.mock_mode</code> 不是 True 时，只要库里有默认模型且能解密 Key，就构建 AG2 客户端进入真实模式；否则安全回退 mock。构建函数 <code>build_model_client()</code>（<code>agent_manager.py</code>）：Anthropic 走原生 <code>AnthropicChatCompletionClient</code>（缺依赖则回落），其余全部走 <code>OpenAIChatCompletionClient</code> —— 任意 OpenAI 兼容端点（DeepSeek / Moonshot / 自建 vLLM）都能接。</p>
+if not default:
+    raise RuntimeError("未配置对话模型：请在「模型管理」添加 LLM 模型并设为默认后重启")
+client = build_model_client(provider=default.provider, model_name=default.model_name,
+                            api_key=api_key, base_url=default.base_url)
+agent_manager = AgentManager(mock_mode=False)
+agent_manager.set_model_client(client, stream=True)   # ✅ 真实模式</code></pre>
+<p>这就是"重启后端即进入真实对话"的实现：只要库里有默认模型且能解密 Key，就构建 AG2 客户端进入真实模式；未配置模型时后端明确报错提示，不 mock 兜底（学习项目不降级不兜底）。构建函数 <code>build_model_client()</code>（<code>agent_manager.py</code>）：Anthropic 走原生 <code>AnthropicChatCompletionClient</code>（缺依赖则回落），其余全部走 <code>OpenAIChatCompletionClient</code> —— 任意 OpenAI 兼容端点（DeepSeek / Moonshot / 自建 vLLM）都能接。</p>
 
 <h3>per-agent 模型覆盖（成员级绑定）</h3>
 <ul>

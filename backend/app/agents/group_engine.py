@@ -27,21 +27,18 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from .agent_manager import AgentManager
 
-try:
-    from autogen_agentchat.base import TaskResult
-    from autogen_agentchat.conditions import MaxMessageTermination
-    from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
-    from autogen_agentchat.teams import DiGraphBuilder, GraphFlow, SelectorGroupChat
-    TEAM_AVAILABLE = True
-except ImportError:  # pragma: no cover - dev environments without AG2
-    TEAM_AVAILABLE = False
+# AG2 团队原语（核心依赖，缺失即环境错误，不降级不兜底）
+from autogen_agentchat.base import TaskResult
+from autogen_agentchat.conditions import MaxMessageTermination
+from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
+from autogen_agentchat.teams import DiGraphBuilder, GraphFlow, SelectorGroupChat
+TEAM_AVAILABLE = True
 
 
 class TeamEngineUnavailable(Exception):
-    """Raised when the framework-native engine cannot run (mock/no client).
+    """Raised when the framework-native engine cannot run (no real-mode client).
 
-    Callers (GroupChatManager) catch this and fall back to the legacy
-    parallel-response path so development without models keeps working.
+    学习项目不降级不兜底：框架引擎不可用时直接报错，由调用方如实反馈给用户。
     """
 
 

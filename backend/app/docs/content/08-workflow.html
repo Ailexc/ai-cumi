@@ -337,7 +337,7 @@ workflow_engine.load_from_db()         # ④ 启动时把 SQLite 里的定义载
 <text x="745" y="128" text-anchor="middle" fill="#d1fae5" font-size="11">execute → 6 内置工具</text> <rect x="650" y="150" width="190" height="52" rx="12" fill="url(#wf-x-res)"/>
 <text x="745" y="172" text-anchor="middle" fill="#fff" font-size="12.5" font-weight="700">ApprovalManager</text> <text x="745" y="190" text-anchor="middle" fill="#d1fae5" font-size="11">request + wait_for_approval</text>
 <rect x="316" y="240" width="524" height="56" rx="12" fill="#f4f4f7"/> <text x="578" y="264" text-anchor="middle" fill="#55585f" font-size="12">执行事件 step.started / step.completed → ws_notifier.broadcast_json → 前端节点高亮</text>
-<text x="578" y="284" text-anchor="middle" fill="#8b8e96" font-size="11.5">mock 兜底：系统未配置模型时，AgentManager 内部降级为模拟回复（透明降级，引擎永远走真实路径）</text> </g>
+<text x="578" y="284" text-anchor="middle" fill="#8b8e96" font-size="11.5">真实模式：未配置模型时后端明确报错，不 mock 兜底</text> </g>
 </svg>
 <div class="fig-cap">接线图：引擎只认 handler 注册表，handler 内部委托系统已有的真实能力；执行事件经 WebSocket 推给前端做运行态高亮。</div>
 </div>
@@ -366,7 +366,7 @@ workflow_engine.load_from_db()         # ④ 启动时把 SQLite 里的定义载
   </div>
 </div>
 
-<div class="warn">诚实说明设计取舍（对应计划文档 3.1）：计划里提过 <code>config.mock = true</code> 的节点级开关，最终实现采用<strong>更简单也更透明的方案</strong>——五类 handler 无条件注册，引擎层永远走真实路径；是否"真实"取决于 AgentManager 自身的 mock 兜底（没配模型时 <code>send_message</code> 返回模拟回复）。好处是引擎逻辑单一；代价是节点级"强制模拟"不可单独开关。另外 <code>agent_call</code> 是同步取完整回复而非流式，稳定性优先，流式吐字到画布留作增强项。</div>
+<div class="warn">诚实说明设计取舍（对应计划文档 3.1）：计划里提过 <code>config.mock = true</code> 的节点级开关，最终实现采用<strong>更简单也更透明的方案</strong>——五类 handler 无条件注册，引擎层永远走真实路径；是否"真实"取决于 AgentManager 是否配置了真实模型（未配置时后端明确报错，不 mock 兜底）。好处是引擎逻辑单一；代价是节点级"强制模拟"不可单独开关。另外 <code>agent_call</code> 是同步取完整回复而非流式，稳定性优先，流式吐字到画布留作增强项。</div>
 </section>
 
 <section id="persistence">
@@ -563,7 +563,7 @@ workflow_engine.load_from_db()         # ④ 启动时把 SQLite 里的定义载
   <tbody>
     <tr><td>1</td><td><code>backend/app/workflow/engine.py</code></td><td><code>WorkflowNode</code> / <code>WorkflowEdge</code> / <code>Workflow</code> / <code>WorkflowRun</code></td><td>DAG 数据模型、运行时字段、to_dict 序列化</td></tr>
     <tr><td>2</td><td><code>backend/app/workflow/engine.py</code></td><td><code>evaluate_condition</code> / <code>render_template</code> / <code>resolve_path</code> / <code>_stringify</code></td><td>安全求值器白名单、模板渲染路径解析</td></tr>
-    <tr><td>3</td><td><code>backend/app/workflow/engine.py</code></td><td><code>execute_workflow</code> / <code>_run_dag</code> / <code>_edge_satisfied</code> / <code>_execute_node</code> / <code>_default_handler</code></td><td>种子节点、出边触发、并行 gather、跳过语义、mock 兜底</td></tr>
+    <tr><td>3</td><td><code>backend/app/workflow/engine.py</code></td><td><code>execute_workflow</code> / <code>_run_dag</code> / <code>_edge_satisfied</code> / <code>_execute_node</code> / <code>_default_handler</code></td><td>种子节点、出边触发、并行 gather、跳过语义、真实模式</td></tr>
     <tr><td>4</td><td><code>backend/app/workflow/engine.py</code></td><td><code>_persist_workflow</code> / <code>_persist_run</code> / <code>load_from_db</code> / <code>get_runs</code></td><td>SQLite 读写、启动加载、统计回填</td></tr>
     <tr><td>5</td><td><code>backend/app/main.py</code></td><td><code>_register_workflow_handlers</code> / 五个 handler</td><td>真实执行接线：send_message / execute / 审批 / 模板</td></tr>
     <tr><td>6</td><td><code>backend/app/main.py</code></td><td><code>WORKFLOW_TEMPLATES</code> / <code>create_from_template</code> / 工作流 API 系列</td><td>模板数据驱动定义、id 重映射、CRUD + 执行 + 取消端点</td></tr>
@@ -591,7 +591,7 @@ workflow_engine.load_from_db()         # ④ 启动时把 SQLite 里的定义载
   </tbody>
 </table>
 
-<div class="key">学习要点：① <strong>统一原语</strong>——顺序/并行/分支/审批全用"节点 + 带条件的边"表达；② <strong>引擎与能力解耦</strong>——引擎只认 handler 注册表，真实能力由 main.py 注入，换能力不改引擎；③ <strong>学习导向的透明</strong>——节点状态、输入输出、耗时全部可查，mock 兜底让无模型也能跑通全流程。</div>
+<div class="key">学习要点：① <strong>统一原语</strong>——顺序/并行/分支/审批全用"节点 + 带条件的边"表达；② <strong>引擎与能力解耦</strong>——引擎只认 handler 注册表，真实能力由 main.py 注入，换能力不改引擎；③ <strong>学习导向的透明</strong>——节点状态、输入输出、耗时全部可查，真实模式跑通全流程。</div>
 
 <div class="tip">动手练习：① 给模板库加一个"翻译 → 校对 → 发布"模板，练 DAG 定义；② 给 condition 表达式加一个 <code>data["count"] &gt;= 3</code> 的数值分支；③ 在 <code>_run_dag</code> 里加一个并行度上限（如 <code>asyncio.Semaphore(2)</code>），体会并行控制的成本；④ 前端给连线加上条件文案展示（React Flow <code>EdgeLabelRenderer</code>）。</div>
 </section>

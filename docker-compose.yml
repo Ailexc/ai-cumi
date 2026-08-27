@@ -11,7 +11,7 @@ services:
       - "dev.orbstack.domains=chat-server.${COMPOSE_PROJECT_NAME:-aicumi}.orb.local"
     restart: unless-stopped
     environment:
-      # mock_mode 自动检测：默认模型配置存在 → 真实模式；否则 mock
+      # 真实模式：默认模型配置存在 → 真实模式；否则明确报错（不 mock 兜底）
       - HOST=0.0.0.0
       - PORT=8000
     ports:

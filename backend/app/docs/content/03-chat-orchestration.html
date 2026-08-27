@@ -199,14 +199,14 @@ td code{white-space:nowrap}
 <table>
   <thead><tr><th>场景</th><th>结果</th><th>说明</th></tr></thead>
   <tbody>
-    <tr><td>未配置任何模型</td><td><code>mock</code></td><td><code>AgentManager(mock_mode=True)</code> 默认;回复来自 <code>_mock_respond()</code> 的模板</td></tr>
+    <tr><td>未配置任何模型</td><td>启动报错</td><td>后端明确提示「请在模型管理配置 LLM 模型」，不 mock 兜底</td></tr>
     <tr><td>配置默认模型并重启</td><td><code>real</code></td><td><code>set_model_client()</code> 挂上共享客户端,<code>model_client_stream=True</code></td></tr>
-    <tr><td>成员级模型覆盖</td><td>强制 <code>real</code></td><td><code>agent_model_clients[agent_id]</code> 存在时,即使全局 mock 也走真实模型</td></tr>
+    <tr><td>成员级模型覆盖</td><td>强制 <code>real</code></td><td><code>agent_model_clients[agent_id]</code> 存在时走该成员绑定的真实模型</td></tr>
     <tr><td><code>force_real=True</code></td><td>强制 <code>real</code></td><td>创建/更新成员时显式要求真实模式</td></tr>
   </tbody>
 </table>
 
-<div class="tip">学习要点:这套「mock 兜底」机制让项目<strong>没有 API Key 也能跑通全部 UI 和流程</strong>,是演示与开发解耦的关键设计;面试时可讲"我如何保证项目零配置可运行"。</div>
+<div class="tip">学习要点:学习项目<strong>默认走真实模式</strong>,未配置模型时后端明确报错提示,不 mock 兜底——mock 只用于 CI 测试,不掩盖「没配模型」的环境问题。</div>
 
 <h3>实例热更新:rebuild_agent()</h3>
 <p>人设、模型或工具绑定变化后,调用 <code>rebuild_agent(agent_id)</code> 保留元数据、重建底层 <code>AssistantAgent</code> 实例,并同步更新 <code>mode</code>。它是「前端改完点保存 → 后端无缝换 Agent」的开关。</p>
