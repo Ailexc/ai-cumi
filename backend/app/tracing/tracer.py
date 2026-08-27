@@ -86,7 +86,11 @@ class Trace:
 
 
 class TracingSystem:
-    """Manages execution traces for agents."""
+    """Manages execution traces for agents.
+
+    持久化：trace 写入 SQLite（``trace_runs`` 表），重启后从 DB 加载，
+    追踪面板历史不丢失。内存缓存保留最近 ``max_traces`` 条用于快速访问。
+    """
     
     def __init__(self, max_traces: int = 100, max_events_per_trace: int = 1000):
         self._traces: Dict[str, Trace] = {}
@@ -94,10 +98,15 @@ class TracingSystem:
         self._max_traces = max_traces
         self._max_events_per_trace = max_events_per_trace
         self._ws_notifier: Optional[Callable] = None
+        self._db_factory: Optional[Callable] = None
     
     def set_ws_notifier(self, notifier: Callable):
         """Set WebSocket notifier for real-time updates."""
         self._ws_notifier = notifier
+    
+    def set_db(self, db_factory: Callable):
+        """Inject a SQLAlchemy session factory for SQLite persistence."""
+        self._db_factory = db_factory
     
     def start_trace(self, agent_id: str, metadata: Optional[Dict[str, Any]] = None) -> Trace:
         """Start a new trace."""
@@ -120,8 +129,70 @@ class TracingSystem:
             # Trim history
             if len(self._completed_traces) > self._max_traces:
                 self._completed_traces = self._completed_traces[-self._max_traces:]
+            
+            # Persist to SQLite (fire-and-forget-safe: never raise in hot path)
+            self._persist_trace(trace)
         
         return trace
+
+    def _persist_trace(self, trace: Trace) -> None:
+        """Write a completed trace to SQLite (``trace_runs`` table)."""
+        if not self._db_factory:
+            return
+        try:
+            from ..models import TraceRun
+            db = self._db_factory()
+            try:
+                row = db.get(TraceRun, trace.id)
+                if row is None:
+                    row = TraceRun(id=trace.id)
+                    db.add(row)
+                row.agent_id = trace.agent_id
+                row.started_at = _parse_dt(trace.started_at)
+                row.ended_at = _parse_dt(trace.ended_at)
+                row.duration_ms = trace._calculate_duration()
+                row.metadata_json = json.dumps(trace.metadata, ensure_ascii=False)
+                row.events_json = json.dumps(
+                    [e.to_dict() for e in trace.events], ensure_ascii=False
+                )
+                db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"⚠️ trace persist error: {e}")
+
+    def load_from_db(self, limit: int = 100) -> int:
+        """Load recent completed traces from SQLite into memory cache.
+
+        Called at startup so the tracing panel keeps history across restarts.
+        Returns the number of traces loaded.
+        """
+        if not self._db_factory:
+            return 0
+        try:
+            from ..models import TraceRun
+            db = self._db_factory()
+            try:
+                rows = (
+                    db.query(TraceRun)
+                    .order_by(TraceRun.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                loaded = 0
+                for row in rows:
+                    trace = _trace_from_row(row)
+                    if trace is not None:
+                        self._completed_traces.append(trace)
+                        loaded += 1
+                # Keep newest first (matches get_traces sort)
+                self._completed_traces.sort(key=lambda t: t.started_at, reverse=True)
+                return loaded
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"⚠️ trace load error: {e}")
+            return 0
     
     async def add_event(
         self,
@@ -297,6 +368,46 @@ class TracingSystem:
             },
             "agents": agents,
         }
+
+
+def _parse_dt(iso_str: Optional[str]):
+    """Parse an ISO datetime string into a datetime (or None)."""
+    if not iso_str:
+        return None
+    try:
+        return datetime.fromisoformat(iso_str)
+    except (ValueError, TypeError):
+        return None
+
+
+def _trace_from_row(row) -> Optional[Trace]:
+    """Reconstruct a Trace from a TraceRun DB row."""
+    try:
+        trace = Trace(
+            id=row.id,
+            agent_id=row.agent_id,
+            started_at=row.started_at.isoformat() if row.started_at else "",
+            ended_at=row.ended_at.isoformat() if row.ended_at else None,
+            metadata=json.loads(row.metadata_json) if row.metadata_json else {},
+        )
+        events = json.loads(row.events_json) if row.events_json else []
+        for e in events:
+            try:
+                trace.events.append(TraceEvent(
+                    id=e.get("id", ""),
+                    trace_id=e.get("trace_id", row.id),
+                    event_type=TraceEventType(e.get("event_type", "custom")),
+                    agent_id=e.get("agent_id", row.agent_id),
+                    timestamp=e.get("timestamp", ""),
+                    data=e.get("data", {}),
+                    parent_id=e.get("parent_id"),
+                    duration_ms=e.get("duration_ms"),
+                ))
+            except (ValueError, KeyError):
+                continue
+        return trace
+    except Exception:
+        return None
 
 
 # Global tracing system instance

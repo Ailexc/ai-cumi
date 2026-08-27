@@ -276,3 +276,22 @@ class RagSettings(Base):
     rerank_top_n = Column(Integer, default=5)
     embedding_model_id = Column(Integer, nullable=True)  # references model_configs.id
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class TraceRun(Base):
+    """Persisted agent execution trace (observability, survives restarts).
+
+    ``events_json`` stores the full event list as JSON; ``metadata_json`` stores
+    the trace metadata. Written on ``end_trace``, loaded back on startup so the
+    tracing panel keeps history across backend restarts.
+    """
+    __tablename__ = "trace_runs"
+
+    id = Column(String(50), primary_key=True)
+    agent_id = Column(String(50), index=True, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Float, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    events_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

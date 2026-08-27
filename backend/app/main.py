@@ -197,6 +197,18 @@ async def lifespan(app: FastAPI):
         traceback.print_exc()
         print(f"⚠️ Workflow engine wiring failed: {e}")
 
+    # ---- Tracing: SQLite persistence (restart 不丢观测数据) ----
+    try:
+        from .database import SessionLocal
+        from .tracing import tracing_system
+        tracing_system.set_db(SessionLocal)
+        loaded = tracing_system.load_from_db()
+        print(f"✅ Tracing system wired (SQLite persistence, loaded {loaded} traces)")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"⚠️ Tracing persistence init failed: {e}")
+
     # ---- Distributed agent runtime (P2: AG2 gRPC Worker Runtime) ----
     try:
         from .distributed import DistributedAgentManager
