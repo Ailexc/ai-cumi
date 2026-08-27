@@ -993,7 +993,8 @@ class GroupChatManager:
             name: Display name of the group
             agent_ids: List of agent IDs to include in the group
             owner_agent_id: ID of the owner/default responder agent
-            mode: free=自由讨论(LLM 选人) / supervisor=主管调度(owner 路由)
+            mode: free=自由讨论(LLM 选人) / supervisor=主管调度(owner 路由) /
+                  parallel=并行独立响应(GraphFlow fan-out)
         """
         # Validate agent IDs
         valid_agents = [aid for aid in agent_ids if aid in self.agent_manager.agents]
@@ -1007,7 +1008,7 @@ class GroupChatManager:
             "name": name,
             "agents": valid_agents,
             "owner": owner_agent_id or valid_agents[0],
-            "mode": mode if mode in ("free", "supervisor") else "free",
+            "mode": mode if mode in ("free", "supervisor", "parallel") else "free",
             "created_at": datetime.now().isoformat(),
         }
         # Persist to database
@@ -1081,10 +1082,20 @@ class GroupChatManager:
         if room_id not in self.group_chats:
             raise ValueError(f"Group chat {room_id} not found")
 
-        from .group_engine import TeamEngineUnavailable, stream_team_response
+        from .group_engine import TeamEngineUnavailable, stream_parallel_response, stream_team_response
 
         info = self.group_chats[room_id]
         members = list(info["agents"])
+        mode = info.get("mode", "free")
+
+        if mode == "parallel":
+            # L2 并行独立响应：框架原生 GraphFlow fan-out，每个成员独立上下文并行回应
+            async for item in stream_parallel_response(
+                self.agent_manager, members, message, history=history,
+            ):
+                yield item
+            return
+
         try:
             async for item in stream_team_response(
                 self.agent_manager, members, message,
@@ -1125,8 +1136,9 @@ class GroupChatManager:
         from .group_engine import TeamEngineUnavailable, collect_team_response
 
         members = list(self.group_chats[room_id]["agents"])
+        mode = self.group_chats[room_id].get("mode", "free")
         try:
-            return await collect_team_response(self.agent_manager, members, message, mentions=mentions)
+            return await collect_team_response(self.agent_manager, members, message, mentions=mentions, mode=mode)
         except TeamEngineUnavailable as e:
             print(f"ℹ️ team engine unavailable ({e}) — legacy parallel fallback")
 

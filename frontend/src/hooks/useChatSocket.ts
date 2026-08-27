@@ -35,7 +35,7 @@ interface UseChatSocketReturn {
   memories: Record<string, Record<string, { id: string; content: string; memory_type: string }[]>>;
   sendMessage: (roomId: string, content: string, mentions?: string[]) => void;
   createRoom: (name: string, agentId: string) => void;
-  createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string, mode?: 'free' | 'supervisor') => void;
+  createGroup: (name: string, memberAgentIds: string[], ownerAgentId?: string, mode?: 'free' | 'supervisor' | 'parallel') => void;
   addGroupMember: (roomId: string, agentId: string) => void;
   loadHistory: (roomId: string) => void;
   refreshRooms: () => void;
@@ -275,7 +275,7 @@ export function useChatSocket(): UseChatSocketReturn {
     }
   }, []);
 
-  const createGroup = useCallback((name: string, memberAgentIds: string[], ownerAgentId?: string, mode?: 'free' | 'supervisor') => {
+  const createGroup = useCallback((name: string, memberAgentIds: string[], ownerAgentId?: string, mode?: 'free' | 'supervisor' | 'parallel') => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'group.create',

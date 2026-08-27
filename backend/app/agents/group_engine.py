@@ -31,7 +31,7 @@ try:
     from autogen_agentchat.base import TaskResult
     from autogen_agentchat.conditions import MaxMessageTermination
     from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
-    from autogen_agentchat.teams import SelectorGroupChat
+    from autogen_agentchat.teams import DiGraphBuilder, GraphFlow, SelectorGroupChat
     TEAM_AVAILABLE = True
 except ImportError:  # pragma: no cover - dev environments without AG2
     TEAM_AVAILABLE = False
@@ -291,15 +291,91 @@ async def stream_team_response(
         print(f"⚠️ group run timed out after {GROUP_RUN_TIMEOUT_S}s")
 
 
+async def stream_parallel_response(
+    agent_manager: AgentManager,
+    members: List[str],
+    message: str,
+    history: Optional[List[Dict]] = None,
+) -> AsyncGenerator[tuple, None]:
+    """L2 并行独立响应模式（框架原生 GraphFlow + DiGraphBuilder fan-out）.
+
+    业界对应模式：Parallel / Fan-out（Map-Reduce 的 fan 阶段）——每个成员是
+    独立个体，各自独立上下文、并行回应，互不干扰（不共享对话流）。
+
+    与串行 SelectorGroupChat 的本质区别：
+    - 串行：共享一个对话流，后发言者能看到前发言者并接着话茬说（讨论/头脑风暴）
+    - 并行：每个成员只看到任务消息 + 自己的私人上下文，独立回应（多专家各自评估）
+
+    实现（autogen-agentchat 0.7.5 GraphFlow，已实测验证）：
+    - 每个成员用 _build_agent_instance 构建独立 AssistantAgent（独立上下文）
+    - DiGraphBuilder 构建 fan-out 图：首个成员为入口 → 并行分发到其余成员
+    - GraphFlow.run_stream 产出 ModelClientStreamingChunkEvent（token 级流式，
+      前端协议零变更）；并行墙钟时间 ≈ 最慢者，不随成员数线性累积
+
+    Yields ``(agent_id, chunk, message_id)`` —— 与串行路径同构，WS 层零改动。
+    """
+    if not TEAM_AVAILABLE:
+        raise TeamEngineUnavailable("autogen_agentchat team primitives not installed")
+
+    participants = []
+    for aid in members:
+        inst = agent_manager._build_agent_instance(aid)
+        if inst is not None:
+            participants.append(inst)
+    if not participants:
+        raise TeamEngineUnavailable("no real-mode participants")
+
+    # 并行 fan-out 图：首个成员为入口，其余成员并行分发
+    builder = DiGraphBuilder()
+    for p in participants:
+        builder.add_node(p)
+    entry = participants[0]
+    for p in participants[1:]:
+        builder.add_edge(entry, p)
+    builder.set_entry_point(entry)
+    graph = builder.build()
+
+    team = GraphFlow(
+        participants=participants,
+        graph=graph,
+        termination_condition=MaxMessageTermination(max_messages=len(participants) + 1),
+    )
+
+    task_text = _build_task_text(agent_manager, message, history)
+
+    # 并行模式用 TextMessage 作为最终内容（非流式）：
+    # GraphFlow 并行成员的 chunk 推理格式不稳定（qwen3.7-flash 的推理可能
+    # 不以 " thinking" 开头，或推理内容里含 " response" 字样导致误判），
+    # 流式 chunk 会泄漏推理。而 AG2 的最终 TextMessage 已正确剥离推理
+    # （reasoning 与 content 分离），因此直接下发 TextMessage 保证内容干净。
+    # 代价：并行模式无逐 token 打字效果，但每个成员仍是独立气泡。
+    try:
+        async with asyncio.timeout(GROUP_RUN_TIMEOUT_S):
+            async for event in team.run_stream(task=task_text):
+                if isinstance(event, TextMessage):
+                    if event.source != "user":
+                        yield (event.source, str(event.content), str(uuid.uuid4()))
+                elif isinstance(event, TaskResult):
+                    print(f"🧵 parallel group run finished: {event.stop_reason}")
+                    break
+    except TimeoutError:
+        print(f"⚠️ parallel group run timed out after {GROUP_RUN_TIMEOUT_S}s")
+
+
 async def collect_team_response(
     agent_manager: AgentManager,
     members: List[str],
     message: str,
     mentions: Optional[List[str]] = None,
     history: Optional[List[Dict]] = None,
+    mode: str = "free",
 ) -> Dict[str, str]:
     """Non-streaming variant: {agent_id: full_reply}（多回合按序拼接）。"""
     parts: Dict[str, List[str]] = {}
-    async for aid, chunk, _mid in stream_team_response(agent_manager, members, message, mentions, history):
-        parts.setdefault(aid, []).append(chunk)
+    if mode == "parallel":
+        async for aid, chunk, _mid in stream_parallel_response(agent_manager, members, message, history):
+            parts.setdefault(aid, []).append(chunk)
+    else:
+        async for aid, chunk, _mid in stream_team_response(agent_manager, members, message, mentions, history):
+            parts.setdefault(aid, []).append(chunk)
     return {aid: "".join(chunks) for aid, chunks in parts.items()}

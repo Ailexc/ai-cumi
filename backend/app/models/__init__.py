@@ -203,7 +203,8 @@ class GroupRoom(Base):
     name = Column(String(100), nullable=False)
     owner_agent_id = Column(String(50), nullable=True)
     member_agent_ids = Column(Text, nullable=False)  # JSON array of agent IDs
-    # L3 组织编排层：free=自由讨论(LLM 选人) / supervisor=主管调度(owner 路由)
+    # L3 组织编排层：free=自由讨论(LLM 选人) / supervisor=主管调度(owner 路由) /
+    # parallel=并行独立响应(GraphFlow fan-out)
     mode = Column(String(20), nullable=False, default="free")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

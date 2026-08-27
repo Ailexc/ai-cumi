@@ -37,8 +37,8 @@ export interface Room {
   /** group 专用 */
   ownerAgentId?: string;
   memberAgentIds?: string[];
-  /** L3 组织编排：free=自由讨论 / supervisor=主管调度 */
-  mode?: 'free' | 'supervisor';
+  /** L3 组织编排：free=自由讨论 / supervisor=主管调度 / parallel=并行独立 */
+  mode?: 'free' | 'supervisor' | 'parallel';
 }
 
 export interface ChatMessage {
@@ -54,7 +54,7 @@ export interface ChatMessage {
 export type ClientMessage =
   | { type: 'chat.send'; roomId: string; content: string; mentions?: string[] }
   | { type: 'room.create'; name: string; agentId: string }
-  | { type: 'group.create'; name: string; memberAgentIds: string[]; ownerAgentId?: string; mode?: 'free' | 'supervisor' }
+  | { type: 'group.create'; name: string; memberAgentIds: string[]; ownerAgentId?: string; mode?: 'free' | 'supervisor' | 'parallel' }
   | { type: 'group.add-member'; roomId: string; agentId: string }
   | { type: 'room.list' }
   | { type: 'agent.list' }

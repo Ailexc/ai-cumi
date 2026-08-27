@@ -294,12 +294,12 @@ function CreateGroupModal({
 }: {
   agents: { id: string; name: string }[];
   agentName: Map<string, string>;
-  onConfirm: (name: string, memberIds: string[], mode: 'free' | 'supervisor') => void;
+  onConfirm: (name: string, memberIds: string[], mode: 'free' | 'supervisor' | 'parallel') => void;
   onCancel: () => void;
 }) {
   const [groupName, setGroupName] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<'free' | 'supervisor'>('free');
+  const [mode, setMode] = useState<'free' | 'supervisor' | 'parallel'>('free');
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -337,7 +337,7 @@ function CreateGroupModal({
         {/* 协作模式（L3 组织编排） */}
         <div className="mb-4">
           <span className="mb-1.5 block text-xs text-muted-foreground">协作模式</span>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => setMode('free')}
               className={`rounded-lg border px-3 py-2 text-left transition-colors ${
@@ -355,6 +355,15 @@ function CreateGroupModal({
             >
               <span className={`block text-sm font-medium ${mode === 'supervisor' ? 'text-primary' : 'text-foreground'}`}>主管调度</span>
               <span className="mt-0.5 block text-xs text-muted-foreground">房主拆解任务并指派汇总</span>
+            </button>
+            <button
+              onClick={() => setMode('parallel')}
+              className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                mode === 'parallel' ? 'border-primary bg-primary-50' : 'border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`block text-sm font-medium ${mode === 'parallel' ? 'text-primary' : 'text-foreground'}`}>并行独立</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">成员各自独立并行回应</span>
             </button>
           </div>
         </div>
